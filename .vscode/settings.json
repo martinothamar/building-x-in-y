@@ -1,0 +1,15 @@
+{
+    "files.associations": {
+        "*.json.liquid": "json",
+        "*.yaml.liquid": "yaml",
+        "*.md.liquid": "markdown",
+        "*.js.liquid": "liquid-javascript",
+        "*.css.liquid": "liquid-css",
+        "*.scss.liquid": "liquid-scss",
+        "stddef.h": "c",
+        "stdint.h": "c",
+        "cstdint": "c",
+        "stdatomic.h": "c",
+        "stdalign.h": "c"
+    }
+}
