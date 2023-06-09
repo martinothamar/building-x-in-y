@@ -10,6 +10,10 @@
         "stdint.h": "c",
         "cstdint": "c",
         "stdatomic.h": "c",
-        "stdalign.h": "c"
+        "stdalign.h": "c",
+        "array": "c",
+        "string": "c",
+        "string_view": "c",
+        "cmath": "c"
     }
 }

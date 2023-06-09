@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <pthread.h>
+#include <stdbool.h>
 
 // Must be power of 2
 #define SPMC_QUEUE_SIZE 64
@@ -13,16 +14,22 @@
 #define NEXT_IDX(index) (((index) + 1) & (SPMC_QUEUE_SIZE - 1))
 #define PREV_IDX(index) (((index) - 1) & (SPMC_QUEUE_SIZE - 1))
 
+#define likely(x)    __builtin_expect (!!(x), 1)
+#define unlikely(x)  __builtin_expect (!!(x), 0)
+
+// Represents a single element in the queue
 typedef struct {
     uint64_t version;
     uint64_t data;
 } block;
 
+// The queue itself
 typedef struct {
     alignas(64) uint64_t index;
     alignas(64) block data[SPMC_QUEUE_SIZE];
 } spmc;
 
+// The reader of the queue, _not_ threadsafe
 typedef struct {
     uint64_t index;
     uint64_t wraps;
@@ -30,36 +37,44 @@ typedef struct {
 } spmc_reader;
 
 void push(spmc *q, uint64_t v) {
-    uint64_t index = atomic_load_explicit(&q->index, memory_order_relaxed);
+    uint64_t index = q->index;
 
-    atomic_fetch_add_explicit(&q->data[index].version, 1, memory_order_relaxed);
+    uint64_t seq0 = atomic_load_explicit(&q->data[index].version, memory_order_relaxed);
+    atomic_store_explicit(&q->data[index].version, seq0 + 1, memory_order_release);
+    atomic_signal_fence(memory_order_acq_rel);
 
     q->data[index].data = v;
 
-    atomic_fetch_add_explicit(&q->data[index].version, 1, memory_order_relaxed);
+    atomic_signal_fence(memory_order_acq_rel);
+    atomic_store_explicit(&q->data[index].version, seq0 + 2, memory_order_release);
 
-    uint64_t new_index = NEXT_IDX(index);
-    atomic_store_explicit(&q->index, new_index, memory_order_relaxed);
+    q->index = NEXT_IDX(index);
 }
 
-uint64_t pop(spmc_reader *qr) {
+bool pop(spmc_reader *qr, uint64_t *value) {
     uint64_t index = qr->index;
 
-    uint64_t version = atomic_load_explicit(&qr->q->data[index].version, memory_order_acquire);
+    uint64_t seq0, seq1;
 
-    if (version == qr->wraps * 2 || (version & 1) != 0)
-        return 0;
+    seq0 = atomic_load_explicit(&qr->q->data[index].version, memory_order_acquire);
+    atomic_signal_fence(memory_order_acq_rel);
 
-    uint64_t value;
-    memcpy(&value, &qr->q->data[index].data, sizeof(value));
+    *value = qr->q->data[index].data;
 
-    uint64_t new_index = NEXT_IDX(index);
-    qr->index = new_index;
-    if (new_index < index) {
-        qr->wraps++;
+    atomic_signal_fence(memory_order_acq_rel);
+    seq1 = atomic_load_explicit(&qr->q->data[index].version, memory_order_acquire);
+
+    if (likely((seq0 & 1) == 0 && seq0 == seq1)) {
+        uint64_t new_index = NEXT_IDX(index);
+        qr->index = new_index;
+        if (new_index < index) {
+            qr->wraps++;
+        }
+        // printf("Got element: %lu\n", *value);
+        return true;
+    } else {
+        return false;
     }
-
-    return version == atomic_load_explicit(&qr->q->data[index].version, memory_order_acquire) ? value : 0;
 }
 
 typedef struct {
@@ -67,14 +82,28 @@ typedef struct {
     spmc *q;
 } reader_args;
 
+
+size_t write_log_index = 0;
+char write_log[1024][128];
+char * write_log_push() {
+    return (char *)&write_log[write_log_index++];
+}
+size_t read_log_index = 0;
+char read_log[1024][128];
+char * read_log_push() {
+    return (char *)&read_log[read_log_index++];
+}
+
 void printq(spmc *q) {
     uint64_t index = PREV_IDX(q->index);
-    printf("Q - index: %lu, data: %lu\n", index, q->data[index].data);
+    char *log = write_log_push();
+    sprintf(log, "Q - index: %lu, data: %lu\n", index, q->data[index].data);
 }
 
 void printqr(spmc_reader *qr, uint64_t r) {
     uint64_t index = PREV_IDX(qr->index);
-    printf("QR - index: %lu, data: %lu, r: %lu\n", index, qr->q->data[index].data, r);
+    char *log = read_log_push();
+    sprintf(log, "QR - index: %lu, data: %lu, r: %lu\n", index, qr->q->data[index].data, r);
 }
 
 const int NUM_MSGS = 64;
@@ -86,8 +115,10 @@ void *reader_thread(void *args)
 
     uint64_t messages_read = 0;
     while (messages_read < NUM_MSGS) {
-        uint64_t r = pop(&spmcr);
-        if (r == 0) {
+        uint64_t r;
+        uint64_t success = pop(&spmcr, &r);
+        if (!success) {
+            printf("Yielding thread\n");
             sched_yield();
             continue;
         }
@@ -100,7 +131,7 @@ void *reader_thread(void *args)
 }
 
 int main() {
-    spmc spmc = { .index = 0 };
+    spmc spmc = { .index = 0, .data = {{ 0 }} };
 
     const int num_threads = 1;
     pthread_t threads[num_threads];
@@ -111,13 +142,21 @@ int main() {
         pthread_create(&threads[t], NULL, reader_thread, (void*)&thread_args[t]);
     }
 
-    for (int i = 0; i < NUM_MSGS; i++) {
+    for (int i = 1; i <= NUM_MSGS; i++) {
         push(&spmc, i);
         printq(&spmc);
     }
 
     for (int t = 0; t < num_threads; t++) {
         pthread_join(threads[t], NULL);
+    }
+
+    for (size_t i = 0; i < write_log_index; i++) {
+        printf("%s", write_log[i]);
+    }
+
+    for (size_t i = 0; i < read_log_index; i++) {
+        printf("%s", read_log[i]);
     }
 
     return 0;
