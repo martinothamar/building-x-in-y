@@ -452,3 +452,4 @@ $RECYCLE.BIN/
 dist/
 
 rust/target/
+zig-cache/
