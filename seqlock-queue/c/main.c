@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 199309L
 #include <stdio.h>
 #include <stdalign.h>
 #include <stdatomic.h>
@@ -6,9 +7,12 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <time.h>
 
 // Must be power of 2
 #define SPMC_QUEUE_SIZE 64
+
+#define NUM_MSGS 64
 
 // Get's the next and the previous index in the queue ringbuffer
 #define NEXT_IDX(index) (((index) + 1) & (SPMC_QUEUE_SIZE - 1))
@@ -64,13 +68,13 @@ bool pop(spmc_reader *qr, uint64_t *value) {
     atomic_signal_fence(memory_order_acq_rel);
     seq1 = atomic_load_explicit(&qr->q->data[index].version, memory_order_acquire);
 
-    if (likely((seq0 & 1) == 0 && seq0 == seq1)) {
+    if (likely(seq0 == ((qr->wraps + 1) * 2) && seq0 == seq1)) {
         uint64_t new_index = NEXT_IDX(index);
         qr->index = new_index;
         if (new_index < index) {
             qr->wraps++;
         }
-        // printf("Got element: %lu\n", *value);
+        // printf("Got element: %lu, seq0: %lu, seq1: %lu\n", *value, seq0, seq1);
         return true;
     } else {
         return false;
@@ -82,31 +86,23 @@ typedef struct {
     spmc *q;
 } reader_args;
 
-
-size_t write_log_index = 0;
-char write_log[1024][128];
-char * write_log_push() {
-    return (char *)&write_log[write_log_index++];
-}
-size_t read_log_index = 0;
-char read_log[1024][128];
-char * read_log_push() {
-    return (char *)&read_log[read_log_index++];
+__thread size_t log_index = 0;
+__thread char log_data[NUM_MSGS * 2][64];
+char * log_push() {
+    return (char *)&log_data[log_index++];
 }
 
 void printq(spmc *q) {
     uint64_t index = PREV_IDX(q->index);
-    char *log = write_log_push();
+    char *log = log_push();
     sprintf(log, "Q - index: %lu, data: %lu\n", index, q->data[index].data);
 }
 
 void printqr(spmc_reader *qr, uint64_t r) {
     uint64_t index = PREV_IDX(qr->index);
-    char *log = read_log_push();
-    sprintf(log, "QR - index: %lu, data: %lu, r: %lu\n", index, qr->q->data[index].data, r);
+    char *log = log_push();
+    sprintf(log, "QR - index: %lu, data: %lu\n", index, r);
 }
-
-const int NUM_MSGS = 64;
 
 void *reader_thread(void *args)
 {
@@ -126,8 +122,20 @@ void *reader_thread(void *args)
         printqr(&spmcr, r);
     }
 
+    for (size_t i = 0; i < log_index; i++) {
+        printf("%s", log_data[i]);
+    }
+
     printf("Exit reader thread\n");
     return NULL;
+}
+
+void ussleep(unsigned long us)
+{
+    struct timespec ts;
+    ts.tv_sec = 0;
+    ts.tv_nsec = us * 1000;
+    nanosleep(&ts, NULL);
 }
 
 int main() {
@@ -142,21 +150,19 @@ int main() {
         pthread_create(&threads[t], NULL, reader_thread, (void*)&thread_args[t]);
     }
 
+    ussleep(1);
+
     for (int i = 1; i <= NUM_MSGS; i++) {
         push(&spmc, i);
         printq(&spmc);
     }
 
+    for (size_t i = 0; i < log_index; i++) {
+        printf("%s", log_data[i]);
+    }
+
     for (int t = 0; t < num_threads; t++) {
         pthread_join(threads[t], NULL);
-    }
-
-    for (size_t i = 0; i < write_log_index; i++) {
-        printf("%s", write_log[i]);
-    }
-
-    for (size_t i = 0; i < read_log_index; i++) {
-        printf("%s", read_log[i]);
     }
 
     return 0;
