@@ -4,6 +4,7 @@
         "ms-dotnettools.csdevkit",
         "editorconfig.editorconfig",
         "ziglang.vscode-zig",
-        "rust-lang.rust-analyzer"
+        "rust-lang.rust-analyzer",
+        "ms-vscode.makefile-tools"
     ]
 }
