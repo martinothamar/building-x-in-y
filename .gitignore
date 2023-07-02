@@ -450,6 +450,5 @@ $RECYCLE.BIN/
 !.vscode/extensions.json
 
 dist/
-
-rust/target/
 zig-cache/
+target/
