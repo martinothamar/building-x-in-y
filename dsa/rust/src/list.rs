@@ -153,4 +153,18 @@ mod tests {
         assert_eq!(0, list.len);
         assert_eq!(4, list.cap);
     }
+
+    #[test]
+    fn mutate_in_place() {
+        let mut list = List::<usize>::new();
+        list.add(1).unwrap();
+
+        let value = &mut list[0];
+        *value = 2;
+
+        assert_eq!(1, list.len);
+        assert_eq!(4, list.cap);
+        assert_eq!(2, *&list[0]);
+        assert_eq!(2, list[0]);
+    }
 }
