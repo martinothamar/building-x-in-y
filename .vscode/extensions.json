@@ -5,6 +5,7 @@
         "editorconfig.editorconfig",
         "ziglang.vscode-zig",
         "rust-lang.rust-analyzer",
-        "ms-vscode.makefile-tools"
+        "ms-vscode.makefile-tools",
+        "vadimcn.vscode-lldb"
     ]
 }

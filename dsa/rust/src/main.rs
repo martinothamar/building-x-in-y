@@ -8,6 +8,7 @@ use crate::ring_buffer::RingBuffer;
 
 mod internal;
 pub mod ring_buffer;
+pub mod list;
 
 fn main() {
     let mut rb = RingBuffer::<usize, 8>::new_heap();
