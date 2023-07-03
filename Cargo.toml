@@ -2,3 +2,4 @@
 members = [
     "dsa/rust",
 ]
+resolver = "2"
