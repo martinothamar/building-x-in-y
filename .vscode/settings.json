@@ -19,6 +19,5 @@
         "unistd.h": "c",
         "string.h": "c",
         "random": "c"
-    },
-    "dotnet.defaultSolution": "http-server/csharp/csharp.sln"
+    }
 }
