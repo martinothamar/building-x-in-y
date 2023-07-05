@@ -22,10 +22,6 @@ pub struct RingBuffer<T, const N: usize> {
     write_index: usize,
 }
 
-pub const fn is_power_of_two<const N: usize>() -> bool {
-    N != 0 && N & (N - 1) == 0
-}
-
 impl<T, const N: usize> RingBuffer<T, N>
 where
     [(); mem::size_of::<T>()]:,
@@ -33,7 +29,7 @@ where
     const ASSERTS: () = {
         assert!(
             is_power_of_two::<{ mem::size_of::<T>() }>(),
-            "\nSize must be a power of two"
+            "\nSize of T must be a power of two"
         );
         assert!(
             is_power_of_two::<N>(),
@@ -200,6 +196,10 @@ impl<T: Debug, const N: usize> Debug for RingBuffer<T, N> {
             .field("write_index", &self.write_index)
             .finish()
     }
+}
+
+const fn is_power_of_two<const N: usize>() -> bool {
+    N != 0 && N & (N - 1) == 0
 }
 
 #[cfg(test)]

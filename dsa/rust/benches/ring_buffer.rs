@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use criterion::{criterion_group, criterion_main, Criterion};
 use dsa::ring_buffer::RingBuffer;
 
-fn do_rb<const N: usize>(rb: &mut Box<RingBuffer<usize, N>>) -> usize {
+fn do_rb<const N: usize>(rb: &mut RingBuffer<usize, N>) -> usize {
     for i in 1..N {
         *rb.push().unwrap() = i;
     }
@@ -34,8 +34,14 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("RingBuffers");
 
-    group.bench_function("dsa::ring_buffer::RingBuffer 64", |b| {
+    group.bench_function("dsa::ring_buffer::RingBuffer heap 64", |b| {
         let mut rb = RingBuffer::<usize, N>::new_heap();
+
+        b.iter(|| do_rb::<N>(&mut rb))
+    });
+
+    group.bench_function("dsa::ring_buffer::RingBuffer inline 64", |b| {
+        let mut rb = RingBuffer::<usize, N>::new_inline();
 
         b.iter(|| do_rb::<N>(&mut rb))
     });
