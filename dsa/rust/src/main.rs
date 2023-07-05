@@ -6,11 +6,11 @@
 
 use crate::ring_buffer::RingBuffer;
 
-pub mod ring_buffer;
 mod internal;
+pub mod ring_buffer;
 
 fn main() {
-    let mut rb = RingBuffer::<usize, 8>::new();
+    let mut rb = RingBuffer::<usize, 8>::new_heap();
 
     let mut value: usize;
 
@@ -20,14 +20,12 @@ fn main() {
     value = *rb.pop().unwrap();
     println!("{rb:?} - {value}");
 
-
     *rb.push().unwrap() = 2;
     println!("{rb:?}");
     *rb.push().unwrap() = 3;
     println!("{rb:?}");
     *rb.push().unwrap() = 4;
     println!("{rb:?}");
-
 
     value = *rb.pop().unwrap();
     println!("{rb:?} - {value}");

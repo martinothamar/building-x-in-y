@@ -4,5 +4,5 @@
 #![feature(adt_const_params)]
 #![feature(new_uninit)]
 
+pub(crate) mod internal;
 pub mod ring_buffer;
-mod internal;

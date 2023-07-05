@@ -2,7 +2,7 @@ bindir := ../../target/release
 outbin := ${bindir}/dsa
 
 ifndef FN
-override FN = dsa::ring_buffer::RingBufferData<T,_>::init
+override FN = dsa::ring_buffer::RingBuffer<T,_>::new_inline
 endif
 
 all: build run
