@@ -89,6 +89,7 @@ where
     /// println!("{rb:?}");
     /// ```
     // #[inline(never)]
+    #[inline(always)]
     pub fn new_inline() -> Self {
         _ = Self::ASSERTS;
 
