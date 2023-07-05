@@ -8,3 +8,8 @@ impl const IsTrue for Assert<true> { }
 
 #[const_trait]
 pub trait IsTrue { }
+
+impl const IsFalse for Assert<false> { }
+
+#[const_trait]
+pub trait IsFalse { }
