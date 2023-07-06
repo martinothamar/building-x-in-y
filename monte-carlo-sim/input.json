@@ -1,0 +1,82 @@
+[
+    {
+        "name": "Manchester City (M, K)",
+        "expectedGoals": 2.473684210526316
+    },
+    {
+        "name": "Arsenal (K)",
+        "expectedGoals": 2.3157894736842106
+    },
+    {
+        "name": "Manchester United (K)",
+        "expectedGoals": 1.5263157894736843
+    },
+    {
+        "name": "Newcastle United (K)",
+        "expectedGoals": 1.7894736842105263
+    },
+    {
+        "name": "Liverpool (K)",
+        "expectedGoals": 1.9736842105263157
+    },
+    {
+        "name": "Brighton & Hove Albion (K)",
+        "expectedGoals": 1.894736842105263
+    },
+    {
+        "name": "Aston Villa (K)",
+        "expectedGoals": 1.3421052631578947
+    },
+    {
+        "name": "Tottenham Hotspur",
+        "expectedGoals": 1.8421052631578947
+    },
+    {
+        "name": "Brentford",
+        "expectedGoals": 1.5263157894736843
+    },
+    {
+        "name": "Fulham",
+        "expectedGoals": 1.4473684210526316
+    },
+    {
+        "name": "Crystal Palace",
+        "expectedGoals": 1.0526315789473684
+    },
+    {
+        "name": "Chelsea",
+        "expectedGoals": 1
+    },
+    {
+        "name": "Wolverhampton Wanderers",
+        "expectedGoals": 0.8157894736842105
+    },
+    {
+        "name": "West Ham United",
+        "expectedGoals": 1.105263157894737
+    },
+    {
+        "name": "Bournemouth",
+        "expectedGoals": 0.9736842105263158
+    },
+    {
+        "name": "Nottingham Forest",
+        "expectedGoals": 1
+    },
+    {
+        "name": "Everton",
+        "expectedGoals": 0.8947368421052632
+    },
+    {
+        "name": "Leicester City (N)",
+        "expectedGoals": 1.3421052631578947
+    },
+    {
+        "name": "Leeds United (N)",
+        "expectedGoals": 1.263157894736842
+    },
+    {
+        "name": "Southampton (N)",
+        "expectedGoals": 0.9473684210526315
+    }
+]
