@@ -8,6 +8,7 @@
     <PublishAot>true</PublishAot>
     <StripSymbols>false</StripSymbols>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RunWorkingDirectory>$(MSBuildProjectDirectory)</RunWorkingDirectory>
   </PropertyGroup>
 
   <ItemGroup>

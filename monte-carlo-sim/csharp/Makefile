@@ -1,2 +1,8 @@
-all:
-	dotnet publish -c Release && /usr/lib/linux-tools/5.15.0-76-generic/perf record -F 99 -e branches,branch-misses,cache-misses ./bin/Release/net8.0/linux-x64/publish/csharp
+all: build
+
+stat: build
+	echo "---$$(date)----------------------------------------------" >> ./.measurements/perf-stats.txt
+	perf stat -d -d -d -o ./.measurements/perf-stats.txt --append ./bin/Release/net8.0/linux-x64/publish/csharp
+
+build:
+	dotnet publish -c Release

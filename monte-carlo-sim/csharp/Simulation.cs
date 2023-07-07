@@ -1,23 +1,19 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using Fast.PRNGs;
 
 [module: SkipLocalsInit]
 
-
 internal readonly struct Input
 {
     public readonly int Simulations;
-    public readonly Teams Teams;
     public readonly int TeamCount;
+    public readonly Teams Teams;
 
     public Input(int simulations, TeamDto[] teams)
     {
         Simulations = simulations;
-
         TeamCount = teams.Length;
-
         unsafe
         {
             for (int i = 0; i < teams.Length; i++)
@@ -31,115 +27,66 @@ internal readonly struct Input
 
 unsafe internal struct Teams
 {
-    public fixed double PoissonLimit[64];
-    public fixed double HomePoissonLimit[64];
+    public fixed double PoissonLimit[32];
+    public fixed double HomePoissonLimit[32];
 }
 
-unsafe internal static class Simulation
+internal static class Simulation
 {
     internal const double HomeAdvantage = 0.25;
+    internal const int MaxNumberOfMatches = 32 * 32 * 2;
 
-    // [ThreadStatic]
-    // private static void* _matchesPtr; // TODO: make sure this is freed at some point
-
-    // [ThreadStatic]
-    // private static nuint _matchesPtrLen;
-
-    // [ThreadStatic]
-    // private static void* _teamsPtr; // TODO: make sure this is freed at some point
-
-    // [ThreadStatic]
-    // private static nuint _teamsPtrLen;
-
-    // private static Span<Match> EnsureMatchesAllocated(int numberOfMatches)
-    // {
-    //     var matchesPtrLen = (nuint)(sizeof(Match) * numberOfMatches);
-    //     if (_matchesPtr is null)
-    //     {
-    //         _matchesPtrLen = matchesPtrLen;
-    //         _matchesPtr = NativeMemory.AlignedAlloc(matchesPtrLen, 64);
-    //         if (_matchesPtr is null)
-    //             throw new Exception("Couldn't allocate memory");
-    //     }
-    //     else
-    //     {
-    //         if (_matchesPtrLen < matchesPtrLen)
-    //         {
-    //             _matchesPtrLen = matchesPtrLen;
-    //             _matchesPtr = NativeMemory.AlignedRealloc(_matchesPtr, matchesPtrLen, 64);
-    //             if (_matchesPtr is null)
-    //                 throw new Exception("Couldn't allocate memory");
-    //         }
-    //     }
-
-    //     return new Span<Match>(_matchesPtr, numberOfMatches);
-    // }
-
-    // private static Span<Team> EnsureTeamsAllocated(TeamDto[] input)
-    // {
-    //     var teamsPtrLen = (nuint)(sizeof(Team) * input.Length);
-    //     if (_teamsPtr is null)
-    //     {
-    //         _teamsPtrLen = teamsPtrLen;
-    //         _teamsPtr = NativeMemory.AlignedAlloc(teamsPtrLen, 64);
-    //         if (_teamsPtr is null)
-    //             throw new Exception("Couldn't allocate memory");
-    //     }
-    //     else
-    //     {
-    //         if (_teamsPtrLen < teamsPtrLen)
-    //         {
-    //             _teamsPtrLen = teamsPtrLen;
-    //             _teamsPtr = NativeMemory.AlignedRealloc(_teamsPtr, teamsPtrLen, 64);
-    //             if (_teamsPtr is null)
-    //                 throw new Exception("Couldn't allocate memory");
-    //         }
-    //     }
-
-    //     return new Span<Team>(_teamsPtr, input.Length);
-    // }
-
-    public static void Run(in Input input)
+    unsafe private struct Matches
     {
-        Debug.Assert(input.TeamCount < 256, "We store team indice as ID as a byte");
+        public fixed byte Home[MaxNumberOfMatches];
+    }
+
+    unsafe public static void Run(in Input input)
+    {
+        Debug.Assert(input.TeamCount <= 32, "We store team indice as ID as a byte, and allocate fixed/static buffers");
 
         var numberOfMatches = (input.TeamCount - 1) * input.TeamCount;
+        Span<byte> matches = stackalloc byte[MaxNumberOfMatches];
+        var matchIndex = 0;
+        var matchups = new HashSet<(byte Home, byte Away)>(numberOfMatches);
+        for (int i = 0; i < input.TeamCount; i++)
+        {
+            for (int j = 0; j < input.TeamCount; j++)
+            {
+                if (i == j)
+                    continue;
+
+                if (matchups.Add(((byte)i, (byte)j)))
+                {
+                    matches[matchIndex] = (byte)i;
+                    matches[matchIndex + 1] = (byte)j;
+                    matchIndex += 2;
+                }
+            }
+        }
 
         var homeRng = Xoshiro256Plus.Create();
         var awayRng = Xoshiro256Plus.Create();
 
-        Span<byte> homeScores = stackalloc byte[NextPow2(numberOfMatches)];
-        Span<byte> awayScores = stackalloc byte[NextPow2(numberOfMatches)];
-
-        var homeScoreIndex = 0;
-        var awayScoreIndex = 0;
+        Span<byte> scores = stackalloc byte[MaxNumberOfMatches];
 
         for (int simulation = 0; simulation < input.Simulations; simulation++)
         {
-            for (int i = 0; i < input.TeamCount; i++)
+            for (int i = 0; i < matchIndex; i += 2)
             {
-                var home = input.Teams.HomePoissonLimit[i];
+                var homeId = matches[i];
+                var awayId = matches[i + 1];
+                var home = input.Teams.HomePoissonLimit[homeId];
+                var away = input.Teams.PoissonLimit[awayId];
 
-                for (int j = 0; j < input.TeamCount; j++)
-                {
-                    if (i == j)
-                        continue;
+                var homeGoals = Simulate(home, ref homeRng);
+                var awayGoals = Simulate(away, ref awayRng);
 
-                    var away = input.Teams.PoissonLimit[j];
-
-                    var homeGoals = Simulate(home, ref homeRng);
-                    var awayGoals = Simulate(away, ref awayRng);
-
-                    homeScores[homeScoreIndex++] = homeGoals;
-                    awayScores[awayScoreIndex++] = awayGoals;
-                }
+                scores[i] = homeGoals;
+                scores[i + 1] = awayGoals;
             }
 
-            homeScoreIndex = 0;
-            awayScoreIndex = 0;
-
-            homeScores.Clear();
-            awayScores.Clear();
+            scores.Clear();
         }
     }
 
@@ -159,69 +106,6 @@ unsafe internal static class Simulation
 
         return goals;
     }
-
-    // private static void PopulateTeams(Span<Team> teams, TeamDto[] input)
-    // {
-    //     for (int i = 0; i < input.Length; i++)
-    //         teams[i] = new Team(input[i].ExpectedGoals);
-    // }
-
-    // private static void PopulateTeams(ref Teams teams, TeamDto[] input)
-    // {
-    //     for (int i = 0; i < input.Length; i++)
-    //     {
-    //         teams.PoissonLimit[i] = double.Exp(-input[i].ExpectedGoals);
-    //         teams.HomePoissonLimit[i] = double.Exp(-(input[i].ExpectedGoals + HomeAdvantage));
-    //     }
-    // }
-
-    // private static void PopulateMatches(Span<Match> matches, Span<Team> teams)
-    // {
-    //     var matchIndex = 0;
-    //     var matchups = new HashSet<(Team Home, Team Away)>();
-    //     for (int i = 0; i < teams.Length; i++)
-    //     {
-    //         ref readonly var home = ref teams[i];
-
-    //         for (int j = 0; j < teams.Length; j++)
-    //         {
-    //             ref readonly var away = ref teams[j];
-
-    //             if (i == j)
-    //                 continue;
-
-    //             if (matchups.Add((home, away)))
-    //                 matches[matchIndex++] = new Match((byte)i, (byte)j);
-    //         }
-    //     }
-    // }
-
-    // private readonly record struct Team
-    // {
-    //     private const double HomeAdvantage = 0.25;
-
-    //     public readonly double PoissonLimit;
-    //     public readonly double HomePoissonLimit;
-
-    //     public Team(double expectedGoals)
-    //     {
-    //         PoissonLimit = double.Exp(-expectedGoals);
-    //         HomePoissonLimit = double.Exp(-(expectedGoals + HomeAdvantage));
-    //     }
-    // }
-
-    // private record struct Match(byte HomeTeam, byte AwayTeam)
-    // {
-    //     public byte HomeGoals;
-
-    //     public byte AwayGoals;
-
-    //     public readonly bool IsHomeWin => HomeGoals > AwayGoals;
-
-    //     public readonly bool IsDraw => HomeGoals == AwayGoals;
-
-    //     public readonly bool IsAwayWin => AwayGoals > HomeGoals;
-    // }
 
     private static int NextPow2(int v)
     {

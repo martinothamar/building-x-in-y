@@ -40,3 +40,7 @@ Example (`git ls-tree -r --name-only HEAD | tree --fromfile`):
 * [Datastructures and algorithms (DSA)](/dsa)
 
 * [HTTP server](/http-server)
+
+## Notes
+
+[Some notes here](/NOTES.md)

@@ -452,3 +452,5 @@ $RECYCLE.BIN/
 dist/
 zig-cache/
 target/
+
+.measurements/

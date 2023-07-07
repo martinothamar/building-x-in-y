@@ -29,5 +29,7 @@ pub struct TeamDto {
 mod sim {
     pub fn simulate<const S: usize>(input: &[super::TeamDto]) {
         let number_of_matches = (input.len() - 1) * input.len();
+
+
     }
 }
