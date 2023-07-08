@@ -7,6 +7,9 @@ endif
 
 all: build run
 
+test:
+	cargo test --release -- --test-threads=1
+
 build:
 	cargo build --release
 

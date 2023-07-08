@@ -1,4 +1,8 @@
-use std::{ptr::{NonNull, copy_nonoverlapping}, alloc::{Layout}, ops::{Index, IndexMut}};
+use std::{
+    alloc::Layout,
+    ops::{Index, IndexMut},
+    ptr::{copy_nonoverlapping, NonNull},
+};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -75,10 +79,15 @@ impl<T> List<T> {
         let new_cap = (self.cap + 1).next_power_of_two().max(4);
         let new_ptr = Self::alloc(new_cap)?;
 
-        unsafe {
+        if self.cap > 0 {
             let curr_ptr = self.ptr.as_ptr();
-            copy_nonoverlapping(curr_ptr, new_ptr.as_ptr(), self.len);
-        };
+            unsafe {
+                copy_nonoverlapping(curr_ptr, new_ptr.as_ptr(), self.len);
+
+                let layout = Layout::array::<T>(self.cap).map_err(|_| Error::Allocation)?;
+                std::alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
+            };
+        }
 
         self.ptr = new_ptr;
         self.cap = new_cap;
@@ -90,6 +99,21 @@ impl<T> List<T> {
         let layout = Layout::array::<T>(cap).map_err(|_| Error::Allocation)?;
         let allocation = unsafe { std::alloc::alloc(layout) as *mut T };
         NonNull::new(allocation).ok_or(Error::Allocation)
+    }
+}
+
+impl<T> Drop for List<T> {
+    fn drop(&mut self) {
+        if self.cap == 0 {
+            return;
+        }
+
+        let ptr = self.ptr.as_ptr();
+
+        let layout = Layout::array::<T>(self.cap)
+            .map_err(|_| Error::Allocation)
+            .unwrap();
+        unsafe { std::alloc::dealloc(ptr as *mut u8, layout) };
     }
 }
 
@@ -118,6 +142,11 @@ impl<T> IndexMut<usize> for List<T> {
 }
 
 mod tests {
+
+    #[cfg(test)]
+    #[global_allocator]
+    static ALLOC: dhat::Alloc = dhat::Alloc;
+
     use super::*;
 
     #[test]
@@ -132,6 +161,21 @@ mod tests {
         let list = List::<usize>::with_capacity(8).unwrap();
         assert_eq!(0, list.len);
         assert_eq!(8, list.cap);
+    }
+
+    #[test]
+    fn deallocates() {
+        let _profiler = dhat::Profiler::builder().testing().build();
+        let start_stats = dhat::HeapStats::get();
+        {
+            let list = List::<usize>::with_capacity(8).unwrap();
+            assert_eq!(0, list.len);
+            assert_eq!(8, list.cap);
+            let end_stats = dhat::HeapStats::get();
+            dhat::assert_eq!(std::mem::size_of::<usize>() * 8, end_stats.curr_bytes - start_stats.curr_bytes);
+        }
+        let stats = dhat::HeapStats::get();
+        dhat::assert_eq!(start_stats.curr_bytes, stats.curr_bytes);
     }
 
     #[test]
