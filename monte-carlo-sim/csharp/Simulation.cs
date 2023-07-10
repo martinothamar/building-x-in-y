@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Sockets;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -104,9 +105,12 @@ internal static class Simulation
 
         var matchCount = state.MatchCount;
 
+        double* goalsmem = stackalloc double[4];
+        var goals = Vector256.Create(0d);
+
         for (int simulation = 0; simulation < state.Simulations; simulation++)
         {
-            for (int i = 0; i < matchCount; i += (2 * 4))
+            for (int i = 0; i < matchCount; i += 4)
             {
                 var homeId1 = matches[i + 0];
                 var awayId1 = matches[i + 1];
@@ -117,10 +121,26 @@ internal static class Simulation
                 Debug.Assert(home1 != 0, "Home poisson limit should not be 0");
                 Debug.Assert(away1 != 0, "Away poisson limit should not be 0");
 
-                var goals = Simulate(home1, ref rng);
+                var homeId2 = matches[i + 2];
+                var awayId2 = matches[i + 3];
+                var homePoissonIndex2 = homeId2 * 2;
+                var awayPoissonIndex2 = awayId2 * 2;
+                var home2 = poisson[homePoissonIndex2 + 0];
+                var away2 = poisson[awayPoissonIndex2 + 1];
+                Debug.Assert(home2 != 0, "Home poisson limit should not be 0");
+                Debug.Assert(away2 != 0, "Away poisson limit should not be 0");
 
-                scores[i] = goals;
-                scores[i + 1] = goals;
+                var poissonVec = Vector256.Create(home1, away1, home2, away2);
+
+                goals = default;
+                Simulate2(poissonVec, ref goals, ref rng);
+
+                Avx2.Store(goalsmem, goals);
+
+                scores[i + 0] = (byte)goalsmem[0];
+                scores[i + 1] = (byte)goalsmem[1];
+                scores[i + 2] = (byte)goalsmem[2];
+                scores[i + 3] = (byte)goalsmem[3];
             }
         }
 
@@ -128,9 +148,47 @@ internal static class Simulation
     }
 
     private static readonly Vector256<double> _adder = Vector256.Create(1d);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void Simulate2(Vector256<double> poissonVec, ref Vector256<double> goals, ref Shishua rng)
+    {
+        Vector256<double> productVec = default;
+        rng.NextDoubles256(ref productVec);
+
+        while (true)
+        {
+            // The traditional knuth algo for poisson does '>=' comparisons
+            // but to make this SIMD friendly we can do subtraction instead
+            var sub = Avx2.Subtract(productVec, poissonVec);
+            // MoveMask extracts sign bits from the floats into the lower bits of the mask
+            // So if all 4 lower bits are set, we can exit (no goals can be added)
+            var mask = Avx2.MoveMask(sub);
+            if (mask == 0x000F)
+                break;
+
+            // If the product - poisson limit >= 0 we should add the goal
+            // Ceiling it will bring negative values to -0 and 0/positive values to 1
+            goals = Avx2.Add(goals, Avx2.Ceiling(sub));
+
+            Vector256<double> nextProductVec = default;
+            rng.NextDoubles256(ref nextProductVec);
+            productVec = Avx2.Multiply(productVec, nextProductVec);
+        }
+
+        // var product = rng.NextDouble();
+
+        // while (product >= poissonLimit)
+        // {
+        //     goals++;
+        //     product *= rng.NextDouble();
+        // }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void Simulate(Vector256<double> poissonVec, ref Vector256<double> goals, ref Shishua rng)
     {
         Vector256<double> productVec = default;
+        rng.NextDoubles256(ref productVec);
 
         while (true)
         {
@@ -142,8 +200,8 @@ internal static class Simulation
             productVec = Avx2.Multiply(productVec, nextProductVec);
 
             var sub = Avx2.Subtract(productVec, poissonVec);
-             // MoveMask extracts sign bits from the floats into the lower bits of the mask
-             // So if
+            // MoveMask extracts sign bits from the floats into the lower bits of the mask
+            // So if
             var mask = Avx2.MoveMask(sub);
             if (mask == 0x000F)
                 break;
