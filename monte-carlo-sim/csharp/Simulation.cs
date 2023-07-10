@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Net.Sockets;
-using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -133,7 +131,7 @@ internal static class Simulation
                 var poissonVec = Vector256.Create(home1, away1, home2, away2);
 
                 goals = default;
-                Simulate2(poissonVec, ref goals, ref rng);
+                Simulate(poissonVec, ref goals, ref rng);
 
                 Avx2.Store(goalsmem, goals);
 
@@ -147,10 +145,8 @@ internal static class Simulation
         scores.Clear();
     }
 
-    private static readonly Vector256<double> _adder = Vector256.Create(1d);
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void Simulate2(Vector256<double> poissonVec, ref Vector256<double> goals, ref Shishua rng)
+    private static void Simulate(Vector256<double> poissonVec, ref Vector256<double> goals, ref Shishua rng)
     {
         Vector256<double> productVec = default;
         rng.NextDoubles256(ref productVec);
@@ -175,69 +171,7 @@ internal static class Simulation
             productVec = Avx2.Multiply(productVec, nextProductVec);
         }
 
-        // var product = rng.NextDouble();
-
-        // while (product >= poissonLimit)
-        // {
-        //     goals++;
-        //     product *= rng.NextDouble();
-        // }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void Simulate(Vector256<double> poissonVec, ref Vector256<double> goals, ref Shishua rng)
-    {
-        Vector256<double> productVec = default;
-        rng.NextDoubles256(ref productVec);
-
-        while (true)
-        {
-            var condition = Avx2.CompareGreaterThanOrEqual(productVec, poissonVec);
-            goals = Avx2.Add(goals, Avx2.And(_adder, condition));
-
-            Vector256<double> nextProductVec = default;
-            rng.NextDoubles256(ref nextProductVec);
-            productVec = Avx2.Multiply(productVec, nextProductVec);
-
-            var sub = Avx2.Subtract(productVec, poissonVec);
-            // MoveMask extracts sign bits from the floats into the lower bits of the mask
-            // So if
-            var mask = Avx2.MoveMask(sub);
-            if (mask == 0x000F)
-                break;
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static byte Simulate(double poisson, ref Shishua rng)
-    {
-        // Knuth's poisson algorithm
-
-        byte goals1 = 0;
-        return goals1;
-
-        // var poissonVec = Vector256.Create(poissonLimit);
-
-        // var product = rng.NextDouble();
-
-        // while (true)
-        // {
-        //     var product0 = product;
-        //     var product1 = product0 * rng.NextDouble();
-        //     var product2 = product1 * rng.NextDouble();
-        //     var product3 = product2 * rng.NextDouble();
-
-        //     var vec = Vector256.Create(product0, product1, product2, product3);
-        //     var res = Avx2.CompareGreaterThanOrEqual(vec, poissonVec);
-        //     var theseGoals = Vector256.Sum(res.AsInt64()) * -1;
-        //     goals += (byte)theseGoals;
-        //     if (theseGoals < 4)
-        //         return goals;
-
-        //     product = product3 * rng.NextDouble();
-        // }
-
-
+        // NOTE: Original algorithm by Knuth
         // var product = rng.NextDouble();
 
         // while (product >= poissonLimit)
