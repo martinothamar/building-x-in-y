@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-dhat = "0.3.2"
 thiserror = "1"
 
 [dev-dependencies]
+dhat = "0.3.2"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
