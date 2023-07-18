@@ -7,58 +7,35 @@ using Fast.PRNGs;
 
 [module: SkipLocalsInit]
 
-unsafe internal struct State : IDisposable
+internal struct State : IDisposable
 {
-    private const nuint Size = (nuint)PoissonOffset + MatchesOffset + ScoresOffset + Simulation.MaxNumberOfMatches * 2;
-    private const int PoissonOffset = 0;
-    private const int MatchesOffset = PoissonOffset + (sizeof(double) * (Simulation.MaxNumberOfTeams * 2)); // Home and Away poisson per team
-    private const int ScoresOffset = PoissonOffset + MatchesOffset + (Simulation.MaxNumberOfMatches * 2);
-
     internal Shishua Rng;
-    internal readonly HashSet<(byte Home, byte Away)> Matchups;
-
-    private readonly void* _ptr;
-    private readonly nuint _ptrSize;
-
-    internal readonly int TeamCount;
-    internal readonly int MatchCount;
     internal readonly int Simulations;
 
-    private readonly Span<byte> _raw => new(_ptr, (int)_ptrSize);
-
-    internal readonly Span<double> Poisson => new((byte*)_ptr + PoissonOffset, Simulation.MaxNumberOfTeams * 2);
-    internal readonly Span<byte> Matches => new((byte*)_ptr + MatchesOffset, Simulation.MaxNumberOfMatches * 2);
-    internal readonly Span<byte> Scores => new(((byte*)_ptr) + ScoresOffset, Simulation.MaxNumberOfMatches * 2);
+    internal readonly double[] Poisson;
+    internal readonly byte[] Matches;
+    internal readonly byte[] Scores;
 
     public State(int simulations, TeamDto[] teams)
     {
         Debug.Assert(teams.Length <= 32, "We store team indice as ID as a byte, and allocate fixed/static buffers");
 
+        var numberOFMatches = (teams.Length - 1) * teams.Length;
+
         Rng = Shishua.Create();
-        Matchups = new(Simulation.MaxNumberOfMatches);
-        _ptrSize = (nuint)Simulation.NextPow2((int)Size);
-        _ptr = NativeMemory.AlignedAlloc(
-            _ptrSize,
-            (nuint)(1024 * 4) /* 4k page size */
-        );
-        if (_ptr is null)
-            throw new Exception("Couldn't allocate memory");
+        var matchups = new HashSet<(byte, byte)>(numberOFMatches);
 
-        // Make sure we touch all memory backed by _ptr, there were a lot of TLB cache misses...
-        // This way, all virtual pages should be mapped to pshycal memory immediately
-        for (int i = 0; i < (int)_ptrSize; i++)
-            *((byte*)_ptr + i) = 0;
-
-        var poisson = Poisson;
+        Poisson = new double[teams.Length * 2];
+        Matches = new byte[numberOFMatches * 2];
+        Scores = new byte[numberOFMatches * 2];
 
         for (int i = 0; i < teams.Length; i++)
         {
             var poissonIndex = i * 2;
-            poisson[poissonIndex + 0] = double.Exp(-(teams[i].ExpectedGoals + Simulation.HomeAdvantage));
-            poisson[poissonIndex + 1] = double.Exp(-teams[i].ExpectedGoals);
+            Poisson[poissonIndex + 0] = double.Exp(-(teams[i].ExpectedGoals + Simulation.HomeAdvantage));
+            Poisson[poissonIndex + 1] = double.Exp(-teams[i].ExpectedGoals);
         }
 
-        var matches = Matches;
         var matchIndex = 0;
         for (int i = 0; i < teams.Length; i++)
         {
@@ -67,23 +44,20 @@ unsafe internal struct State : IDisposable
                 if (i == j)
                     continue;
 
-                if (Matchups.Add(((byte)i, (byte)j)))
+                if (matchups.Add(((byte)i, (byte)j)))
                 {
-                    matches[matchIndex + 0] = (byte)i;
-                    matches[matchIndex + 1] = (byte)j;
+                    Matches[matchIndex + 0] = (byte)i;
+                    Matches[matchIndex + 1] = (byte)j;
                     matchIndex += 2;
                 }
             }
         }
 
-        TeamCount = teams.Length;
-        MatchCount = matchIndex;
         Simulations = simulations;
     }
 
     public void Dispose()
     {
-        NativeMemory.AlignedFree(_ptr);
         Rng.Dispose();
     }
 }
@@ -91,8 +65,6 @@ unsafe internal struct State : IDisposable
 internal static class Simulation
 {
     internal const double HomeAdvantage = 0.25;
-    internal const int MaxNumberOfTeams = 32;
-    internal const int MaxNumberOfMatches = 32 * 32;
 
     unsafe public static void Run(ref State state)
     {
@@ -101,14 +73,12 @@ internal static class Simulation
         var matches = state.Matches;
         var poisson = state.Poisson;
 
-        var matchCount = state.MatchCount;
-
         double* goalsmem = stackalloc double[4];
         var goals = Vector256.Create(0d);
 
         for (int simulation = 0; simulation < state.Simulations; simulation++)
         {
-            for (int i = 0; i < matchCount; i += 4)
+            for (int i = 0; i < matches.Length; i += 4)
             {
                 var homeId1 = matches[i + 0];
                 var awayId1 = matches[i + 1];
@@ -142,7 +112,7 @@ internal static class Simulation
             }
         }
 
-        scores.Clear();
+        System.Array.Clear(scores);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -179,18 +149,5 @@ internal static class Simulation
         //     goals++;
         //     product *= rng.NextDouble();
         // }
-    }
-
-    internal static int NextPow2(int v)
-    {
-        v--;
-        v |= v >> 1;
-        v |= v >> 2;
-        v |= v >> 4;
-        v |= v >> 8;
-        v |= v >> 16;
-        v++;
-
-        return v;
     }
 }

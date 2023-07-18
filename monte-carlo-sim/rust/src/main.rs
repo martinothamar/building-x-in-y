@@ -18,9 +18,9 @@ async fn main() -> Result<()> {
 
     let teams_dto = serde_json::from_slice::<Vec<TeamDto>>(&buf)?;
 
-    const ITERATIONS: usize = 16;
+    const ITERATIONS: usize = 64;
     let mut state = sim::State::new(&teams_dto);
-    let mut elapsed: [Duration; ITERATIONS] = Default::default();
+    let mut elapsed = [Duration::ZERO; ITERATIONS];
 
     for i in 0..ITERATIONS {
         let start = Instant::now();
@@ -55,8 +55,11 @@ mod sim {
 
     pub const HOME_ADVANTAGE: f64 = 0.25;
 
+    type RngImpl = Xoshiro256PlusX4;
+    type RngImplSeed = Xoshiro256PlusX4Seed;
+
     pub struct State {
-        rng: Xoshiro256PlusPlusX4,
+        rng: RngImpl,
 
         poisson: Vec<f64>,
         matches: Vec<u8>,
@@ -66,7 +69,7 @@ mod sim {
     impl State {
         pub fn new(teams: &[TeamDto]) -> Self {
             let number_of_matches = (teams.len() - 1) * teams.len();
-            let mut seed: Xoshiro256PlusPlusX4Seed = Default::default();
+            let mut seed: RngImplSeed = Default::default();
             rand::thread_rng().fill_bytes(&mut *seed);
 
             let mut poisson = vec![0.0; teams.len() * 2];
@@ -97,7 +100,7 @@ mod sim {
             }
 
             Self {
-                rng: Xoshiro256PlusPlusX4::from_seed(seed),
+                rng: RngImpl::from_seed(seed),
                 poisson: poisson,
                 matches: matches,
                 scores: scores,
@@ -105,42 +108,43 @@ mod sim {
         }
     }
 
+    #[inline(never)]
     pub fn simulate<const S: usize>(state: &mut State) {
         unsafe {
-            let mut goals = _mm256_set1_pd(0.0);
+            let mut goals;
             let mut goals_mem: F64x4 = Default::default();
 
             for _ in 0..S {
                 for i in (0..state.matches.len()).step_by(4) {
-                    let home_id_1 = state.matches[i + 0];
-                    let away_id_1 = state.matches[i + 1];
+                    let home_id_1 = *state.matches.get_unchecked(i + 0);
+                    let away_id_1 = *state.matches.get_unchecked(i + 1);
                     let home_poisson_index_1 = (home_id_1 * 2) as usize;
                     let away_poisson_index_1 = (away_id_1 * 2) as usize;
-                    let home_1 = state.poisson[home_poisson_index_1 + 0];
-                    let away_1 = state.poisson[away_poisson_index_1 + 1];
+                    let home_1 = *state.poisson.get_unchecked(home_poisson_index_1 + 0);
+                    let away_1 = *state.poisson.get_unchecked(away_poisson_index_1 + 1);
                     debug_assert!(home_1 != 0.0);
                     debug_assert!(away_1 != 0.0);
 
-                    let home_id_2 = state.matches[i + 2];
-                    let away_id_2 = state.matches[i + 3];
+                    let home_id_2 = *state.matches.get_unchecked(i + 2);
+                    let away_id_2 = *state.matches.get_unchecked(i + 3);
                     let home_poisson_index_2 = (home_id_2 * 2) as usize;
                     let away_poisson_index_2 = (away_id_2 * 2) as usize;
-                    let home_2 = state.poisson[home_poisson_index_2 + 0];
-                    let away_2 = state.poisson[away_poisson_index_2 + 1];
+                    let home_2 = *state.poisson.get_unchecked(home_poisson_index_2 + 0);
+                    let away_2 = *state.poisson.get_unchecked(away_poisson_index_2 + 1);
                     debug_assert!(home_2 != 0.0);
                     debug_assert!(away_2 != 0.0);
 
                     let poisson_vec = _mm256_set_pd(home_1, away_1, home_2, away_2);
-                    goals = _mm256_set1_pd(0.0);
+                    goals = _mm256_setzero_pd();
 
                     simulate_match(&poisson_vec, &mut goals, &mut state.rng);
 
                     _mm256_store_pd(goals_mem.as_mut_ptr(), goals);
 
-                    state.scores[i + 0] = goals_mem[0] as u8;
-                    state.scores[i + 1] = goals_mem[1] as u8;
-                    state.scores[i + 2] = goals_mem[2] as u8;
-                    state.scores[i + 3] = goals_mem[3] as u8;
+                    *state.scores.get_unchecked_mut(i + 0) = goals_mem[0] as u8;
+                    *state.scores.get_unchecked_mut(i + 1) = goals_mem[1] as u8;
+                    *state.scores.get_unchecked_mut(i + 2) = goals_mem[2] as u8;
+                    *state.scores.get_unchecked_mut(i + 3) = goals_mem[3] as u8;
                 }
             }
         }
@@ -148,12 +152,13 @@ mod sim {
         state.scores.fill(0);
     }
 
+    #[inline(always)]
     unsafe fn simulate_match(
         poisson_vec: &__m256d,
         goals: &mut __m256d,
-        rng: &mut Xoshiro256PlusPlusX4,
+        rng: &mut RngImpl,
     ) {
-        let mut product_vec = _mm256_set1_pd(0.0);
+        let mut product_vec = _mm256_setzero_pd();
         rng.next_m256d(&mut product_vec);
 
         loop {
@@ -165,7 +170,7 @@ mod sim {
 
             *goals = _mm256_add_pd(*goals, _mm256_ceil_pd(sub));
 
-            let mut next_product_vec = _mm256_set1_pd(0.0);
+            let mut next_product_vec = _mm256_setzero_pd();
             rng.next_m256d(&mut next_product_vec);
             product_vec = _mm256_mul_pd(product_vec, next_product_vec);
         }

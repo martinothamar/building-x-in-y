@@ -455,3 +455,6 @@ target/
 
 .measurements/
 dhat-heap.json
+perf.data
+perf.data*
+flamegraph.svg

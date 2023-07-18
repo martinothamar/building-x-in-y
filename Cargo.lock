@@ -797,7 +797,7 @@ dependencies = [
 [[package]]
 name = "simd_prng"
 version = "0.1.0"
-source = "git+https://github.com/martinothamar/simd-prng#45409485ea13a246a864b1609938289735937d52"
+source = "git+https://github.com/martinothamar/simd-prng#ebbba0641c88d014b26574304e2bb205970fe244"
 dependencies = [
  "rand_core",
 ]
