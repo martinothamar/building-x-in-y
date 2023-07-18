@@ -7,6 +7,9 @@ stat: build
 	echo "---$$(date)----------------------------------------------" >> ./.measurements/perf-stats.txt
 	perf stat -d -d -d -o ./.measurements/perf-stats.txt --append $(outbin)
 
+bench:
+	cargo bench
+
 run: build
 	$(outbin)
 

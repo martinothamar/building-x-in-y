@@ -475,6 +475,7 @@ name = "monte-carlo-sim"
 version = "0.1.0"
 dependencies = [
  "color-eyre",
+ "criterion",
  "rand",
  "serde",
  "serde_json",
