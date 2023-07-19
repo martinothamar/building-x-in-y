@@ -20,7 +20,7 @@ async fn main() -> Result<()> {
 
     let teams_dto = serde_json::from_slice::<Vec<TeamDto>>(&buf)?;
 
-    const ITERATIONS: usize = 16;
+    const ITERATIONS: usize = 32;
     let mut state = sim::State::new(&teams_dto);
     let mut elapsed = [Duration::ZERO; ITERATIONS];
 

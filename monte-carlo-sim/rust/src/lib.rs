@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![feature(stdsimd)]
 
 use serde::Deserialize;
 
@@ -11,17 +12,18 @@ pub struct TeamDto {
 
 pub mod sim {
     use std::arch::x86_64::*;
+    use std::mem::transmute;
     use std::{collections::HashSet, ops::Neg};
 
     use rand::{RngCore, SeedableRng};
-    use simd_prng::specific::avx2::*;
+    use simd_prng::specific::avx512::*;
 
     use crate::TeamDto;
 
     pub const HOME_ADVANTAGE: f64 = 0.25;
 
-    type RngImpl = Xoshiro256PlusX4;
-    type RngImplSeed = Xoshiro256PlusX4Seed;
+    type RngImpl = Xoshiro256PlusX8;
+    type RngImplSeed = Xoshiro256PlusX8Seed;
 
     pub struct State {
         rng: RngImpl,
@@ -31,24 +33,24 @@ pub mod sim {
 
     #[derive(Default, Clone)]
     struct Matches {
-        poisson: Vec<__m256d>,
+        poisson: Vec<__m512d>,
         home: Vec<u8>,
         away: Vec<u8>,
-        score: Vec<__m256d>,
+        score: Vec<__m512d>,
     }
 
     impl Matches {
         pub fn new(number_of_matches: usize, teams: &[TeamDto]) -> Self {
             unsafe {
-                let mut poisson = vec![_mm256_setzero_pd(); (number_of_matches * 2) / 4];
+                let mut poisson = vec![_mm512_setzero_pd(); (number_of_matches * 2) / 8];
                 let mut home = vec![0u8; number_of_matches];
                 let mut away = vec![0u8; number_of_matches];
-                let score = vec![_mm256_setzero_pd(); (number_of_matches * 2) / 4];
+                let score = vec![_mm512_setzero_pd(); (number_of_matches * 2) / 8];
 
                 let mut matchups = HashSet::with_capacity(number_of_matches);
 
                 let mut match_index: usize = 0;
-                let mut current_vec = [0.0; 4];
+                let mut current_vec = [0.0; 8];
                 let mut current_vec_index = 0;
                 let mut poisson_index = 0;
                 for i in 0..teams.len() {
@@ -66,12 +68,16 @@ pub mod sim {
                             current_vec[current_vec_index + 1] =
                                 teams[j].expected_goals.neg().exp();
                             current_vec_index += 2;
-                            if current_vec_index == 4 {
-                                poisson[poisson_index] = _mm256_set_pd(
+                            if current_vec_index == 8 {
+                                poisson[poisson_index] = _mm512_set_pd(
                                     current_vec[0],
                                     current_vec[1],
                                     current_vec[2],
                                     current_vec[3],
+                                    current_vec[4],
+                                    current_vec[5],
+                                    current_vec[6],
+                                    current_vec[7],
                                 );
                                 poisson_index += 1;
                                 current_vec_index = 0;
@@ -98,7 +104,7 @@ pub mod sim {
         pub fn reset_scores(&mut self) {
             unsafe {
                 for vec in &mut self.score {
-                    *vec = _mm256_setzero_pd();
+                    *vec = _mm512_setzero_pd();
                 }
             }
         }
@@ -130,7 +136,7 @@ pub mod sim {
                     .zip(state.matches.score.iter_mut())
                     .enumerate()
                 {
-                    *goals = _mm256_setzero_pd();
+                    *goals = _mm512_setzero_pd();
 
                     simulate_match(poisson_vec, goals, &mut state.rng);
                 }
@@ -141,22 +147,54 @@ pub mod sim {
     }
 
     #[inline(always)]
-    unsafe fn simulate_match(poisson_vec: &__m256d, goals: &mut __m256d, rng: &mut RngImpl) {
-        let mut product_vec = _mm256_setzero_pd();
-        rng.next_m256d(&mut product_vec);
+    unsafe fn simulate_match(poisson_vec: &__m512d, goals: &mut __m512d, rng: &mut RngImpl) {
+        let mut product_vec = _mm512_setzero_pd();
+        rng.next_m512d(&mut product_vec);
 
         loop {
-            let sub = _mm256_sub_pd(product_vec, *poisson_vec);
-            let mask = _mm256_movemask_pd(sub);
-            if mask == 0x000F {
+            let sub = _mm512_sub_pd(product_vec, *poisson_vec);
+            let mask = mm512_movemask_pd_1(sub);
+            if mask == 0xFF {
                 break;
             }
 
-            *goals = _mm256_add_pd(*goals, _mm256_ceil_pd(sub));
+            *goals = _mm512_add_pd(*goals, _mm512_roundscale_pd::<2>(sub));
 
-            let mut next_product_vec = _mm256_setzero_pd();
-            rng.next_m256d(&mut next_product_vec);
-            product_vec = _mm256_mul_pd(product_vec, next_product_vec);
+            let mut next_product_vec = _mm512_setzero_pd();
+            rng.next_m512d(&mut next_product_vec);
+            product_vec = _mm512_mul_pd(product_vec, next_product_vec);
         }
     }
+
+    pub unsafe fn mm512_movemask_pd_1(x: __m512d) -> u8 {
+        _mm512_cmpneq_epi64_mask(
+            _mm512_setzero_si512(),
+            _mm512_and_si512(
+                _mm512_set1_epi64(transmute::<_, i64>(0x8000000000000000u64)),
+                _mm512_castpd_si512(x),
+            ),
+        )
+    }
+
+    pub unsafe fn mm512_movemask_pd_2(x: __m512d) -> i32 {
+        let lower = _mm512_extractf64x4_pd(x, 0);
+        let upper = _mm512_extractf64x4_pd(x, 1);
+        (_mm256_movemask_pd(lower) << 4) | _mm256_movemask_pd(upper)
+    }
+
+    // #define	_MM512_MOVEMASK_EPI64(a)                                              \
+    // (int) _mm512_cmpneq_epi64_mask(_mm512_setzero_si512(),                    \
+    // 	_mm512_and_si512(_mm512_set1_epi64(0x8000000000000000ULL), a))
+
+    // #define	_MM512_MOVEMASK_PD(a)                                                 \
+    //     _MM512_MOVEMASK_EPI64(_mm512_castpd_si512(a))
+
+    // int movemask512(__m512d x) {
+    //     return _MM512_MOVEMASK_PD(x);
+    // }
+    // int movemask512b(__m512d x) {
+    //     __m256d lower = _mm512_extractf64x4_pd(x, 0);
+    //     __m256d upper = _mm512_extractf64x4_pd(x, 1);
+    //     return _mm256_movemask_pd(lower) | _mm256_movemask_pd(upper);
+    // }
 }
