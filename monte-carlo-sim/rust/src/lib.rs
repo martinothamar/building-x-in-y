@@ -128,17 +128,17 @@ pub mod sim {
     #[inline(never)]
     pub fn simulate<const S: usize>(state: &mut State) {
         unsafe {
+            assert!(state.matches.poisson.len() == state.matches.score.len());
+
             for _ in 0..S {
-                for (_, (poisson_vec, goals)) in state
-                    .matches
-                    .poisson
-                    .iter_mut()
-                    .zip(state.matches.score.iter_mut())
-                    .enumerate()
+                for i in 0..state.matches.poisson.len()
                 {
+                    let poisson_vec = state.matches.poisson.get_unchecked_mut(i);
+                    let goals = state.matches.score.get_unchecked_mut(i);
+
                     *goals = _mm512_setzero_pd();
 
-                    simulate_match(poisson_vec, goals, &mut state.rng);
+                    simulate_matches(poisson_vec, goals, &mut state.rng);
                 }
             }
         }
@@ -147,7 +147,7 @@ pub mod sim {
     }
 
     #[inline(always)]
-    unsafe fn simulate_match(poisson_vec: &__m512d, goals: &mut __m512d, rng: &mut RngImpl) {
+    unsafe fn simulate_matches(poisson_vec: &__m512d, goals: &mut __m512d, rng: &mut RngImpl) {
         let mut product_vec = _mm512_setzero_pd();
         rng.next_m512d(&mut product_vec);
 
@@ -177,5 +177,13 @@ pub mod sim {
                 _mm512_castpd_si512(x),
             ),
         )
+
+        // Alt that is slower:
+        // let mut mask: u8;
+        // asm!(
+        //     "vpmovq2m {1}, {0}",
+        //     in(zmm_reg) sub,
+        //     out(kreg) mask,
+        // );
     }
 }
