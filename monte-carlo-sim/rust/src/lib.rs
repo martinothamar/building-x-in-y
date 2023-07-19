@@ -153,7 +153,7 @@ pub mod sim {
 
         loop {
             let sub = _mm512_sub_pd(product_vec, *poisson_vec);
-            let mask = mm512_movemask_pd_1(sub);
+            let mask = mm512_movemask_pd(sub);
             if mask == 0xFF {
                 break;
             }
@@ -166,7 +166,10 @@ pub mod sim {
         }
     }
 
-    pub unsafe fn mm512_movemask_pd_1(x: __m512d) -> u8 {
+    // There is no simple intrinsic for movemask as there is in other AVX2 (which is a single instruction intrinsic)
+    // here is an equivalent for AVX512
+    // taken from here: https://github.com/flang-compiler/flang/blob/d9280ff4e0cb296abec03ee7bb4a2b04f7dae932/runtime/libpgmath/lib/common/mth_avx512helper.h#L215
+    pub unsafe fn mm512_movemask_pd(x: __m512d) -> u8 {
         _mm512_cmpneq_epi64_mask(
             _mm512_setzero_si512(),
             _mm512_and_si512(
@@ -175,26 +178,4 @@ pub mod sim {
             ),
         )
     }
-
-    pub unsafe fn mm512_movemask_pd_2(x: __m512d) -> i32 {
-        let lower = _mm512_extractf64x4_pd(x, 0);
-        let upper = _mm512_extractf64x4_pd(x, 1);
-        (_mm256_movemask_pd(lower) << 4) | _mm256_movemask_pd(upper)
-    }
-
-    // #define	_MM512_MOVEMASK_EPI64(a)                                              \
-    // (int) _mm512_cmpneq_epi64_mask(_mm512_setzero_si512(),                    \
-    // 	_mm512_and_si512(_mm512_set1_epi64(0x8000000000000000ULL), a))
-
-    // #define	_MM512_MOVEMASK_PD(a)                                                 \
-    //     _MM512_MOVEMASK_EPI64(_mm512_castpd_si512(a))
-
-    // int movemask512(__m512d x) {
-    //     return _MM512_MOVEMASK_PD(x);
-    // }
-    // int movemask512b(__m512d x) {
-    //     __m256d lower = _mm512_extractf64x4_pd(x, 0);
-    //     __m256d upper = _mm512_extractf64x4_pd(x, 1);
-    //     return _mm256_movemask_pd(lower) | _mm256_movemask_pd(upper);
-    // }
 }
