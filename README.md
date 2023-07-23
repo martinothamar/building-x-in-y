@@ -38,8 +38,8 @@ Example (`git ls-tree -r --name-only HEAD | tree --fromfile`):
 ## Topics
 
 * [Datastructures and algorithms (DSA)](/dsa)
-
 * [HTTP server](/http-server)
+* [Monte Carlo simulations](/monte-carlo-sim) - simulating a premier league season 100k times. SIMD
 
 ## Notes
 
