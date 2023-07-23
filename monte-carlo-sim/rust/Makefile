@@ -16,6 +16,9 @@ run: build
 build:
 	cargo build --release
 
+test:
+	cargo test
+
 dasm:
 	cargo objdump --release -- \
 	-d -S -M intel > $(bindir)/monte-carlo-sim.asm 2> $(bindir)/monte-carlo-sim.asm.log

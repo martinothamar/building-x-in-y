@@ -9,5 +9,5 @@ resolver = "2"
 panic = "abort"
 lto = true
 opt-level = 3
-debug = 2
+debug = "none"
 codegen-units = 1

@@ -10,7 +10,7 @@ serde_json = { version = "1.0" }
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 color-eyre = "0.5"
-simd_prng = { git = "https://github.com/martinothamar/simd-prng" }
+simd_rand = { git = "https://github.com/martinothamar/simd-rand" }
 rand = "0.8.5"
 
 [dev-dependencies]

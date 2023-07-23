@@ -479,7 +479,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
- "simd_prng",
+ "simd_rand",
  "tokio",
 ]
 
@@ -796,9 +796,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "simd_prng"
+name = "simd_rand"
 version = "0.1.0"
-source = "git+https://github.com/martinothamar/simd-prng#21dc0abd01f9bd0dbb80f28e5eb4b0cdb92df477"
+source = "git+https://github.com/martinothamar/simd-rand#087b879b1189253dd06074b33c738db03df5961a"
 dependencies = [
  "rand_core",
 ]

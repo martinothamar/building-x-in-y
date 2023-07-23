@@ -12,11 +12,11 @@ pub struct TeamDto {
 
 pub mod sim {
     use std::arch::x86_64::*;
-    use std::mem::transmute;
+    use std::mem::{self, transmute};
     use std::{collections::HashSet, ops::Neg};
 
     use rand::{RngCore, SeedableRng};
-    use simd_prng::specific::avx512::*;
+    use simd_rand::specific::avx512::*;
 
     use crate::TeamDto;
 
@@ -29,6 +29,19 @@ pub mod sim {
         rng: RngImpl,
 
         matches: Matches,
+    }
+
+    impl State {
+        fn size_of(&self) -> usize {
+            let rng_size = mem::size_of::<RngImpl>();
+            let matches_base_size = mem::size_of::<Matches>();
+            rng_size
+                + matches_base_size
+                + (self.matches.poisson.len() * mem::size_of::<__m512d>())
+                + (self.matches.home.len())
+                + (self.matches.away.len())
+                + (self.matches.score.len() * mem::size_of::<__m512d>())
+        }
     }
 
     #[derive(Default, Clone)]
@@ -131,8 +144,7 @@ pub mod sim {
             assert!(state.matches.poisson.len() == state.matches.score.len());
 
             for _ in 0..S {
-                for i in 0..state.matches.poisson.len()
-                {
+                for i in 0..state.matches.poisson.len() {
                     let poisson_vec = state.matches.poisson.get_unchecked_mut(i);
                     let goals = state.matches.score.get_unchecked_mut(i);
 
@@ -148,8 +160,7 @@ pub mod sim {
 
     #[inline(always)]
     unsafe fn simulate_matches(poisson_vec: &__m512d, goals: &mut __m512d, rng: &mut RngImpl) {
-        let mut product_vec = _mm512_setzero_pd();
-        rng.next_m512d(&mut product_vec);
+        let mut product_vec = rng.next_m512d();
 
         loop {
             let sub = _mm512_sub_pd(product_vec, *poisson_vec);
@@ -160,8 +171,7 @@ pub mod sim {
 
             *goals = _mm512_add_pd(*goals, _mm512_roundscale_pd::<2>(sub));
 
-            let mut next_product_vec = _mm512_setzero_pd();
-            rng.next_m512d(&mut next_product_vec);
+            let next_product_vec = rng.next_m512d();
             product_vec = _mm512_mul_pd(product_vec, next_product_vec);
         }
     }
@@ -169,6 +179,7 @@ pub mod sim {
     // There is no simple intrinsic for movemask as there is in other AVX2 (which is a single instruction intrinsic)
     // here is an equivalent for AVX512
     // taken from here: https://github.com/flang-compiler/flang/blob/d9280ff4e0cb296abec03ee7bb4a2b04f7dae932/runtime/libpgmath/lib/common/mth_avx512helper.h#L215
+    #[inline(always)]
     pub unsafe fn mm512_movemask_pd(x: __m512d) -> u8 {
         _mm512_cmpneq_epi64_mask(
             _mm512_setzero_si512(),
@@ -178,12 +189,56 @@ pub mod sim {
             ),
         )
 
-        // Alt that is slower:
+        // Alternative that was measured to be slower:
         // let mut mask: u8;
-        // asm!(
+        // std::arch::asm!(
         //     "vpmovq2m {1}, {0}",
-        //     in(zmm_reg) sub,
+        //     in(zmm_reg) x,
         //     out(kreg) mask,
+        //     // 'nostack' option tells the compiler that we won't be touching the stack
+        //     // in our inline asm. This improves the generated code some.
+        //     // For instance, the compiler might have align the stack frame pointer to 16 bytes in case
+        //     // there is a call instruction in there
+        //     options(nostack),
         // );
+        // mask
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::{
+            fs::File,
+            io::{BufReader, Read},
+        };
+
+        use super::*;
+
+        fn get_state() -> State {
+            let file = File::open("../input.json")
+                .unwrap_or_else(|_| File::open("monte-carlo-sim/input.json").unwrap());
+            let mut file = BufReader::new(file);
+            let mut buf = Vec::with_capacity(512);
+            file.read_to_end(&mut buf).unwrap();
+
+            let teams_dto = serde_json::from_slice::<Vec<TeamDto>>(&buf).unwrap();
+
+            const ITERATIONS: usize = 32;
+            State::new(&teams_dto)
+        }
+
+        #[test]
+        fn size() {
+            let state = get_state();
+            let size = state.size_of();
+
+            // As per lscpu, I have 384KiB total L1 data cache, across 8 cores
+            let l1d_sum_kb = 384usize;
+            let core_l1d_size_b = (l1d_sum_kb * 1024) / 8;
+
+            // This machine has hyperthreading though, so a different logical core
+            // might compete over L1 cache resources, so I atleast want to stick
+            // to less than half of the L1 cache for a physical core (there are 16 logical cores)
+            assert!(size < (core_l1d_size_b / 2));
+        }
     }
 }
