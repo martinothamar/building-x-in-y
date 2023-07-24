@@ -27,16 +27,13 @@ pub mod sim {
 
     pub struct State {
         rng: RngImpl,
-
+        number_of_teams: usize,
         matches: Matches,
     }
 
     impl State {
         fn size_of(&self) -> usize {
-            let rng_size = mem::size_of::<RngImpl>();
-            let matches_base_size = mem::size_of::<Matches>();
-            rng_size
-                + matches_base_size
+            mem::size_of::<Self>()
                 + (self.matches.poisson.len() * mem::size_of::<__m512d>())
                 + (self.matches.home.len())
                 + (self.matches.away.len())
@@ -63,7 +60,8 @@ pub mod sim {
                 let mut matchups = HashSet::with_capacity(number_of_matches);
 
                 let mut match_index: usize = 0;
-                let mut current_vec = [0.0; 8];
+                let mut current_home_vec = [0.0; 8];
+                let mut current_away_vec = [0.0; 8];
                 let mut current_vec_index = 0;
                 let mut poisson_index = 0;
                 for i in 0..teams.len() {
@@ -76,23 +74,35 @@ pub mod sim {
                             home[match_index] = i as u8;
                             away[match_index] = j as u8;
 
-                            current_vec[current_vec_index + 0] =
+                            current_home_vec[current_vec_index] =
                                 (teams[i].expected_goals + HOME_ADVANTAGE).neg().exp();
-                            current_vec[current_vec_index + 1] =
+                            current_away_vec[current_vec_index] =
                                 teams[j].expected_goals.neg().exp();
-                            current_vec_index += 2;
+
+                            current_vec_index += 1;
+
                             if current_vec_index == 8 {
-                                poisson[poisson_index] = _mm512_set_pd(
-                                    current_vec[0],
-                                    current_vec[1],
-                                    current_vec[2],
-                                    current_vec[3],
-                                    current_vec[4],
-                                    current_vec[5],
-                                    current_vec[6],
-                                    current_vec[7],
+                                poisson[poisson_index + 0] = _mm512_set_pd(
+                                    current_home_vec[0],
+                                    current_home_vec[1],
+                                    current_home_vec[2],
+                                    current_home_vec[3],
+                                    current_home_vec[4],
+                                    current_home_vec[5],
+                                    current_home_vec[6],
+                                    current_home_vec[7],
                                 );
-                                poisson_index += 1;
+                                poisson[poisson_index + 1] = _mm512_set_pd(
+                                    current_away_vec[0],
+                                    current_away_vec[1],
+                                    current_away_vec[2],
+                                    current_away_vec[3],
+                                    current_away_vec[4],
+                                    current_away_vec[5],
+                                    current_away_vec[6],
+                                    current_away_vec[7],
+                                );
+                                poisson_index += 2;
                                 current_vec_index = 0;
                             }
 
@@ -108,10 +118,6 @@ pub mod sim {
                     score,
                 }
             }
-        }
-
-        pub fn len(&self) -> usize {
-            self.home.len()
         }
 
         pub fn reset_scores(&mut self) {
@@ -133,6 +139,7 @@ pub mod sim {
 
             Self {
                 rng: RngImpl::from_seed(seed),
+                number_of_teams: teams.len(),
                 matches: matches,
             }
         }
@@ -143,14 +150,37 @@ pub mod sim {
         unsafe {
             assert!(state.matches.poisson.len() == state.matches.score.len());
 
+            let poisson = state.matches.poisson.as_ptr();
+            let scores = state.matches.score.as_mut_ptr();
+
             for _ in 0..S {
-                for i in 0..state.matches.poisson.len() {
-                    let poisson_vec = state.matches.poisson.get_unchecked_mut(i);
-                    let goals = state.matches.score.get_unchecked_mut(i);
+                let table = vec![_mm512_setzero_pd(); state.number_of_teams];
 
-                    *goals = _mm512_setzero_pd();
+                for i in (0..state.matches.poisson.len()).step_by(2) {
+                    let home_poisson = poisson.add(i + 0);
+                    let away_poisson = poisson.add(i + 1);
 
-                    simulate_matches(poisson_vec, goals, &mut state.rng);
+                    let home_goals = scores.add(i + 0);
+                    let away_goals = scores.add(i + 1);
+
+                    *home_goals = _mm512_setzero_pd();
+                    *away_goals = _mm512_setzero_pd();
+
+                    simulate_sides(home_poisson, home_goals, &mut state.rng);
+                    simulate_sides(away_poisson, away_goals, &mut state.rng);
+
+                    let lt = _mm512_cmp_pd_mask::<_CMP_LT_OQ>(*home_goals, *away_goals);
+                    let gt = _mm512_cmp_pd_mask::<_CMP_GT_OQ>(*home_goals, *away_goals);
+                    let eq = _mm512_cmp_pd_mask::<_CMP_EQ_OQ>(*home_goals, *away_goals);
+
+                    // _mm512_mask_add_pd(z, ge, h, _mm512_set1_pd(3));
+
+                    dbg!({
+                        let lts = format!("{:#010b}", lt);
+                        let gts = format!("{:#010b}", gt);
+                        let eqs = format!("{:#010b}", eq);
+                        (lts, gts, eqs)
+                    });
                 }
             }
         }
@@ -159,7 +189,7 @@ pub mod sim {
     }
 
     #[inline(always)]
-    unsafe fn simulate_matches(poisson_vec: &__m512d, goals: &mut __m512d, rng: &mut RngImpl) {
+    unsafe fn simulate_sides(poisson_vec: *const __m512d, goals: *mut __m512d, rng: &mut RngImpl) {
         let mut product_vec = rng.next_m512d();
 
         loop {
