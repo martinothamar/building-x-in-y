@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![feature(stdsimd)]
+#![feature(allocator_api)]
 
 use serde::Deserialize;
 
@@ -11,15 +12,18 @@ pub struct TeamDto {
 }
 
 pub mod sim {
+    use mem::size_of;
     use std::arch::x86_64::*;
     use std::mem::{self, transmute};
-    use std::{collections::HashSet, ops::Neg};
+    use std::ops::Neg;
+    use std::{alloc, slice};
 
     use rand::{RngCore, SeedableRng};
     use simd_rand::specific::avx512::*;
 
     use crate::TeamDto;
 
+    const ALIGN: usize = 64;
     pub const HOME_ADVANTAGE: f64 = 0.25;
 
     type RngImpl = Xoshiro256PlusX8;
@@ -27,120 +31,95 @@ pub mod sim {
 
     pub struct State {
         rng: RngImpl,
-        number_of_teams: usize,
-        matches: Matches,
+        number_of_teams: u32,
+        poisson_len: u32,
+        table_len: u32,
+        home_poisson: *mut f64, // len = next_multiple_of(len(teams), 8)
+        away_poisson: *mut f64, // len = next_multiple_of(len(teams), 8)
+        table: *mut f64,
     }
 
     impl State {
         fn size_of(&self) -> usize {
             mem::size_of::<Self>()
-                + (self.matches.poisson.len() * mem::size_of::<__m512d>())
-                + (self.matches.home.len())
-                + (self.matches.away.len())
-                + (self.matches.score.len() * mem::size_of::<__m512d>())
+                + (self.poisson_len as usize * mem::size_of::<f64>())
+                + (self.poisson_len as usize * mem::size_of::<f64>())
+                + (self.table_len as usize * mem::size_of::<f64>())
         }
     }
 
-    #[derive(Default, Clone)]
-    struct Matches {
-        poisson: Vec<__m512d>,
-        home: Vec<u8>,
-        away: Vec<u8>,
-        score: Vec<__m512d>,
-    }
-
-    impl Matches {
-        pub fn new(number_of_matches: usize, teams: &[TeamDto]) -> Self {
+    impl Drop for State {
+        fn drop(&mut self) {
             unsafe {
-                let mut poisson = vec![_mm512_setzero_pd(); (number_of_matches * 2) / 8];
-                let mut home = vec![0u8; number_of_matches];
-                let mut away = vec![0u8; number_of_matches];
-                let score = vec![_mm512_setzero_pd(); (number_of_matches * 2) / 8];
+                let poisson_layout =
+                    alloc::Layout::from_size_align(size_of::<f64>() * self.poisson_len as usize, ALIGN).unwrap();
+                let table_layout = alloc::Layout::from_size_align(size_of::<f64>() * self.table_len as usize, ALIGN).unwrap();
 
-                let mut matchups = HashSet::with_capacity(number_of_matches);
-
-                let mut match_index: usize = 0;
-                let mut current_home_vec = [0.0; 8];
-                let mut current_away_vec = [0.0; 8];
-                let mut current_vec_index = 0;
-                let mut poisson_index = 0;
-                for i in 0..teams.len() {
-                    for j in 0..teams.len() {
-                        if i == j {
-                            continue;
-                        }
-
-                        if matchups.insert((i as u8, j as u8)) {
-                            home[match_index] = i as u8;
-                            away[match_index] = j as u8;
-
-                            current_home_vec[current_vec_index] =
-                                (teams[i].expected_goals + HOME_ADVANTAGE).neg().exp();
-                            current_away_vec[current_vec_index] =
-                                teams[j].expected_goals.neg().exp();
-
-                            current_vec_index += 1;
-
-                            if current_vec_index == 8 {
-                                poisson[poisson_index + 0] = _mm512_set_pd(
-                                    current_home_vec[0],
-                                    current_home_vec[1],
-                                    current_home_vec[2],
-                                    current_home_vec[3],
-                                    current_home_vec[4],
-                                    current_home_vec[5],
-                                    current_home_vec[6],
-                                    current_home_vec[7],
-                                );
-                                poisson[poisson_index + 1] = _mm512_set_pd(
-                                    current_away_vec[0],
-                                    current_away_vec[1],
-                                    current_away_vec[2],
-                                    current_away_vec[3],
-                                    current_away_vec[4],
-                                    current_away_vec[5],
-                                    current_away_vec[6],
-                                    current_away_vec[7],
-                                );
-                                poisson_index += 2;
-                                current_vec_index = 0;
-                            }
-
-                            match_index += 1;
-                        }
-                    }
-                }
-
-                Self {
-                    poisson,
-                    home,
-                    away,
-                    score,
-                }
-            }
-        }
-
-        pub fn reset_scores(&mut self) {
-            unsafe {
-                for vec in &mut self.score {
-                    *vec = _mm512_setzero_pd();
-                }
+                alloc::dealloc(self.home_poisson.cast(), poisson_layout);
+                alloc::dealloc(self.away_poisson.cast(), poisson_layout);
+                alloc::dealloc(self.table.cast(), table_layout);
             }
         }
     }
 
     impl State {
         pub fn new(teams: &[TeamDto]) -> Self {
-            let number_of_matches = (teams.len() - 1) * teams.len();
-            let mut seed: RngImplSeed = Default::default();
-            rand::thread_rng().fill_bytes(&mut *seed);
+            unsafe {
+                let number_of_matches = (teams.len() - 1) * teams.len();
+                let mut seed: RngImplSeed = Default::default();
+                rand::thread_rng().fill_bytes(&mut *seed);
 
-            let matches = Matches::new(number_of_matches, teams);
+                let poisson_len = next_multiple_of(teams.len(), 8);
+                let table_len = next_multiple_of(teams.len(), 8);
 
-            Self {
-                rng: RngImpl::from_seed(seed),
-                number_of_teams: teams.len(),
-                matches: matches,
+                let poisson_layout = alloc::Layout::from_size_align(size_of::<f64>() * poisson_len, ALIGN).unwrap();
+                let table_layout = alloc::Layout::from_size_align(size_of::<f64>() * table_len, ALIGN).unwrap();
+
+                let home_poisson_ptr = alloc::alloc(poisson_layout).cast::<f64>();
+                let away_poisson_ptr = alloc::alloc(poisson_layout).cast::<f64>();
+                let table_ptr = alloc::alloc(table_layout).cast::<f64>();
+
+                let home_poisson = slice::from_raw_parts_mut(home_poisson_ptr.cast(), poisson_len);
+                let away_poisson = slice::from_raw_parts_mut(away_poisson_ptr.cast(), poisson_len);
+                let table = slice::from_raw_parts_mut(table_ptr, table_len);
+
+                for i in 0..poisson_len {
+                    if i < teams.len() {
+                        home_poisson[i] = (teams[i].expected_goals + HOME_ADVANTAGE).neg().exp();
+                    } else {
+                        home_poisson[i] = 1.0;
+                    }
+                }
+
+                for j in 0..poisson_len {
+                    if j < teams.len() {
+                        away_poisson[j] = teams[j].expected_goals.neg().exp();
+                    } else {
+                        away_poisson[j] = 1.0;
+                    }
+                }
+
+                for i in 0..table_len {
+                    table[i] = 0f64;
+                }
+
+                Self {
+                    rng: RngImpl::from_seed(seed),
+                    number_of_teams: teams.len() as u32,
+                    poisson_len: poisson_len as u32,
+                    table_len: table_len as u32,
+                    home_poisson: home_poisson_ptr,
+                    away_poisson: away_poisson_ptr,
+                    table: table_ptr,
+                }
+            }
+        }
+
+        pub fn reset_table(&mut self) {
+            unsafe {
+                for i in 0..self.table_len {
+                    *self.table.add(i as usize) = 0f64;
+                }
             }
         }
     }
@@ -148,52 +127,104 @@ pub mod sim {
     #[inline(never)]
     pub fn simulate<const S: usize>(state: &mut State) {
         unsafe {
-            assert!(state.matches.poisson.len() == state.matches.score.len());
+            // assert!(state.matches.poisson.len() == state.matches.score.len());
 
-            let poisson = state.matches.poisson.as_ptr();
-            let scores = state.matches.score.as_mut_ptr();
+            // let poisson = state.matches.poisson.as_ptr();
+            // let scores = state.matches.score.as_mut_ptr();
+
+            let home_poisson = state.home_poisson;
+            let away_poisson = state.away_poisson;
+            let table = state.table;
+
+            assert!(state.poisson_len % 8 == 0);
+            assert!(state.number_of_teams < state.poisson_len);
+            let len = state.number_of_teams;
 
             for _ in 0..S {
-                let table = vec![_mm512_setzero_pd(); state.number_of_teams];
+                // let mut table = vec![_mm512_setzero_pd(); next_multiple_of(len, 8) / 8];}
+                tick(&mut state.rng, home_poisson, away_poisson, table, len);
 
-                for i in (0..state.matches.poisson.len()).step_by(2) {
-                    let home_poisson = poisson.add(i + 0);
-                    let away_poisson = poisson.add(i + 1);
-
-                    let home_goals = scores.add(i + 0);
-                    let away_goals = scores.add(i + 1);
-
-                    *home_goals = _mm512_setzero_pd();
-                    *away_goals = _mm512_setzero_pd();
-
-                    simulate_sides(home_poisson, home_goals, &mut state.rng);
-                    simulate_sides(away_poisson, away_goals, &mut state.rng);
-
-                    let lt = _mm512_cmp_pd_mask::<_CMP_LT_OQ>(*home_goals, *away_goals);
-                    let gt = _mm512_cmp_pd_mask::<_CMP_GT_OQ>(*home_goals, *away_goals);
-                    let eq = _mm512_cmp_pd_mask::<_CMP_EQ_OQ>(*home_goals, *away_goals);
-
-                    // _mm512_mask_add_pd(z, ge, h, _mm512_set1_pd(3));
-
-                    dbg!({
-                        let lts = format!("{:#010b}", lt);
-                        let gts = format!("{:#010b}", gt);
-                        let eqs = format!("{:#010b}", eq);
-                        (lts, gts, eqs)
-                    });
-                }
+                // TODO copy table
+                state.reset_table();
             }
         }
-
-        state.matches.reset_scores();
     }
 
     #[inline(always)]
-    unsafe fn simulate_sides(poisson_vec: *const __m512d, goals: *mut __m512d, rng: &mut RngImpl) {
+    unsafe fn tick(rng: &mut RngImpl, home_poisson: *mut f64, away_poisson: *mut f64, table: *mut f64, len: u32) {
+        let _table_res = slice::from_raw_parts(table, len as usize);
+
+        for i in 0..len {
+            let home_poisson = _mm512_set1_pd(*home_poisson.add(i as usize));
+            let mut home_points = _mm512_setzero_pd();
+
+            let mut j = 0u32;
+            while j < len {
+                let exclude_mask = if i >= j && i < j + 8 {
+                    let pos = j + 8 - i;
+                    0b1000_0000u8 >> (pos - 1)
+                } else {
+                    0b0000_0000u8
+                };
+
+                // let exclude_masks = format!("{:#010b}", exclude_mask);
+
+                let away_poisson = _mm512_load_pd(away_poisson.add(j as usize));
+
+                let mut home_goals = _mm512_setzero_pd();
+                let mut away_goals = _mm512_setzero_pd();
+
+                simulate_sides(home_poisson, &mut home_goals, rng);
+                simulate_sides(away_poisson, &mut away_goals, rng);
+
+                let home = _mm512_cmp_pd_mask::<_CMP_GT_OQ>(home_goals, away_goals);
+                let draw = _mm512_cmp_pd_mask::<_CMP_EQ_OQ>(home_goals, away_goals);
+                let away = !home & !draw;
+
+                let draw_mask = draw & !exclude_mask;
+                // let draw_masks = format!("{:#010b}", draw_mask);
+
+                // Home
+                let home_mask = home & !exclude_mask;
+                // let home_masks = format!("{:#010b}", home_mask);
+                home_points = _mm512_mask_add_pd(home_points, home_mask, home_points, _mm512_set1_pd(3.0));
+                home_points = _mm512_mask_add_pd(home_points, draw_mask, home_points, _mm512_set1_pd(1.0));
+
+                // Away
+                let mut away_points = _mm512_setzero_pd();
+                let away_mask = away & !exclude_mask;
+                // let away_masks = format!("{:#010b}", away_mask);
+                away_points = _mm512_mask_add_pd(away_points, away_mask, away_points, _mm512_set1_pd(3.0));
+                away_points = _mm512_mask_add_pd(away_points, draw_mask, away_points, _mm512_set1_pd(1.0));
+
+                let table_section = _mm512_load_pd(table.add(j as usize));
+                _mm512_store_pd(table.add(j as usize), _mm512_add_pd(table_section, away_points));
+
+                j += 8;
+                // dbg!(
+                //     home_points,
+                //     away_points,
+                //     home_masks,
+                //     draw_masks,
+                //     away_masks,
+                //     exclude_masks
+                // );
+            }
+
+            *table.add(i as usize) += _mm512_reduce_add_pd(home_points);
+
+            // TODO - remainders of i, j?
+        }
+
+        // dbg!(table_res);
+    }
+
+    #[inline(always)]
+    unsafe fn simulate_sides(poisson_vec: __m512d, goals: &mut __m512d, rng: &mut RngImpl) {
         let mut product_vec = rng.next_m512d();
 
         loop {
-            let sub = _mm512_sub_pd(product_vec, *poisson_vec);
+            let sub = _mm512_sub_pd(product_vec, poisson_vec);
             let mask = mm512_movemask_pd(sub);
             if mask == 0xFF {
                 break;
@@ -234,6 +265,14 @@ pub mod sim {
         // mask
     }
 
+    fn next_multiple_of(num: usize, multiple: usize) -> usize {
+        let remainder = num % multiple;
+        match remainder {
+            0 => num,
+            v => num + multiple - v,
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use std::{
@@ -241,11 +280,13 @@ pub mod sim {
             io::{BufReader, Read},
         };
 
+        use itertools::Itertools;
+
         use super::*;
 
         fn get_state() -> State {
-            let file = File::open("../input.json")
-                .unwrap_or_else(|_| File::open("monte-carlo-sim/input.json").unwrap());
+            let file =
+                File::open("../input.json").unwrap_or_else(|_| File::open("monte-carlo-sim/input.json").unwrap());
             let mut file = BufReader::new(file);
             let mut buf = Vec::with_capacity(512);
             file.read_to_end(&mut buf).unwrap();
@@ -254,6 +295,44 @@ pub mod sim {
 
             const ITERATIONS: usize = 32;
             State::new(&teams_dto)
+        }
+
+        #[test]
+        fn bitstuff() {
+            fn ha(a: u8, b: u8) -> u16 {
+                let a = a as u16;
+                let b = b as u16;
+                let sub = (1 * ((b - a) / 20)) + 1;
+                let r = a * 20 + b - sub;
+                let z = r * r;
+                return r;
+            }
+
+            fn har(r: u16) -> (u8, u8) {
+                let a = (r - r % 20) / 20;
+                let b = r % 20;
+                (a as u8, b as u8)
+            }
+
+            let mut has = Vec::new();
+            for i in 0..20 {
+                for j in 0..20 {
+                    if i == j {
+                        continue;
+                    }
+
+                    let ha = ha(i, j);
+                    let (i2, j2) = har(ha);
+                    // let r = (i, j, ha, i2, j2);
+                    has.push(ha);
+                }
+            }
+
+            let binding = has.iter().counts();
+            let gaps = has.iter().tuple_windows().filter(|&(a, b)| b - a > 1).collect_vec();
+            let dups = binding.iter().filter(|&(_, c)| *c > 1).collect_vec();
+
+            dbg!(gaps, dups);
         }
 
         #[test]
