@@ -1,13 +1,15 @@
-use std::{fs::File, io::{BufReader, Read}, time::Duration};
+use std::{
+    fs::File,
+    io::{BufReader, Read},
+};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use monte_carlo_sim::{TeamDto, sim};
+use monte_carlo_sim::{sim, TeamDto};
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Simulation");
 
     group.throughput(Throughput::Elements(1_000));
-    group.measurement_time(Duration::from_secs(30));
 
     group.bench_function("simulation 1_000", |b| {
         let file = File::open("../input.json").unwrap();

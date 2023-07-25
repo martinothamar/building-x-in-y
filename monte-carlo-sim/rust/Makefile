@@ -8,7 +8,7 @@ stat: build
 	perf stat -d -d -d -o ./.measurements/perf-stats.txt --append $(outbin)
 
 bench:
-	cargo bench
+	cargo bench --bench sim -- --verbose
 
 run: build
 	$(outbin)

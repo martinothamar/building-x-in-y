@@ -32,12 +32,16 @@ pub mod sim {
 
     pub struct State {
         rng: RngImpl,
-        number_of_teams: u32,
+        number_of_teams: usize,
         poisson_len: u32,
         table_len: u32,
+        sorted_table_len: u32,
+        table_position_history_len: u32,
         home_poisson: *mut f64, // len = next_multiple_of(len(teams), 8)
         away_poisson: *mut f64, // len = next_multiple_of(len(teams), 8)
         table: *mut f64,
+        sorted_table: *mut (u8, i8),
+        table_position_history: *mut u16,
     }
 
     impl State {
@@ -46,6 +50,8 @@ pub mod sim {
                 + (self.poisson_len as usize * mem::size_of::<f64>())
                 + (self.poisson_len as usize * mem::size_of::<f64>())
                 + (self.table_len as usize * mem::size_of::<f64>())
+                + (self.sorted_table_len as usize * mem::size_of::<(u8, i8)>())
+                + (self.table_position_history_len as usize * mem::size_of::<u16>())
         }
     }
 
@@ -56,10 +62,18 @@ pub mod sim {
                     alloc::Layout::from_size_align(size_of::<f64>() * self.poisson_len as usize, ALIGN).unwrap();
                 let table_layout =
                     alloc::Layout::from_size_align(size_of::<f64>() * self.table_len as usize, ALIGN).unwrap();
+                let sorted_table_layout =
+                    alloc::Layout::from_size_align(size_of::<(u8, i8)>() * self.sorted_table_len as usize, ALIGN)
+                        .unwrap();
+                let table_position_history_layout =
+                    alloc::Layout::from_size_align(size_of::<u16>() * self.table_position_history_len as usize, ALIGN)
+                        .unwrap();
 
                 alloc::dealloc(self.home_poisson.cast(), poisson_layout);
                 alloc::dealloc(self.away_poisson.cast(), poisson_layout);
                 alloc::dealloc(self.table.cast(), table_layout);
+                alloc::dealloc(self.sorted_table.cast(), sorted_table_layout);
+                alloc::dealloc(self.table_position_history.cast(), table_position_history_layout);
             }
         }
     }
@@ -72,17 +86,24 @@ pub mod sim {
 
                 let poisson_len = next_multiple_of(teams.len(), 8);
                 let table_len = next_multiple_of(teams.len(), 8);
+                let sorted_table_len = teams.len();
+                let table_position_history_len = teams.len() * teams.len();
 
                 let poisson_layout = alloc::Layout::from_size_align(size_of::<f64>() * poisson_len, ALIGN).unwrap();
                 let table_layout = alloc::Layout::from_size_align(size_of::<f64>() * table_len, ALIGN).unwrap();
+                let sorted_table_layout =
+                    alloc::Layout::from_size_align(size_of::<(u8, i8)>() * sorted_table_len, ALIGN).unwrap();
+                let table_position_history_layout =
+                    alloc::Layout::from_size_align(size_of::<u16>() * table_position_history_len, ALIGN).unwrap();
 
                 let home_poisson_ptr = alloc::alloc(poisson_layout).cast::<f64>();
                 let away_poisson_ptr = alloc::alloc(poisson_layout).cast::<f64>();
-                let table_ptr = alloc::alloc(table_layout).cast::<f64>();
+                let table_ptr = alloc::alloc_zeroed(table_layout).cast::<f64>();
+                let sorted_table_ptr = alloc::alloc_zeroed(sorted_table_layout).cast::<(u8, i8)>();
+                let table_position_history_ptr = alloc::alloc_zeroed(table_position_history_layout).cast::<u16>();
 
                 let home_poisson = slice::from_raw_parts_mut(home_poisson_ptr.cast(), poisson_len);
                 let away_poisson = slice::from_raw_parts_mut(away_poisson_ptr.cast(), poisson_len);
-                let table = slice::from_raw_parts_mut(table_ptr, table_len);
 
                 for i in 0..poisson_len {
                     if i < teams.len() {
@@ -100,18 +121,18 @@ pub mod sim {
                     }
                 }
 
-                for i in 0..table_len {
-                    table[i] = 0f64;
-                }
-
                 Self {
                     rng: RngImpl::from_seed(seed),
-                    number_of_teams: teams.len() as u32,
+                    number_of_teams: teams.len(),
                     poisson_len: poisson_len as u32,
                     table_len: table_len as u32,
+                    sorted_table_len: sorted_table_len as u32,
+                    table_position_history_len: table_position_history_len as u32,
                     home_poisson: home_poisson_ptr,
                     away_poisson: away_poisson_ptr,
                     table: table_ptr,
+                    sorted_table: sorted_table_ptr,
+                    table_position_history: table_position_history_ptr,
                 }
             }
         }
@@ -126,46 +147,43 @@ pub mod sim {
     }
 
     #[inline(never)]
-    pub fn simulate<const S: usize>(state: &mut State) -> Vec<u16> {
+    pub fn simulate<const S: usize>(state: &mut State) -> u16 {
         unsafe {
-            // assert!(state.matches.poisson.len() == state.matches.score.len());
-
-            // let poisson = state.matches.poisson.as_ptr();
-            // let scores = state.matches.score.as_mut_ptr();
-
             let home_poisson = state.home_poisson;
             let away_poisson = state.away_poisson;
             let table_ptr = state.table;
 
             assert!(state.poisson_len % 8 == 0);
-            assert!(state.number_of_teams < state.poisson_len);
-            let len = state.number_of_teams;
+            assert!(state.number_of_teams < state.poisson_len as usize);
+            let len = state.number_of_teams as u32;
 
             let table = slice::from_raw_parts_mut(table_ptr, len as usize);
-            let mut sorted_table = vec![Default::default(); len as usize];
-            let mut table_pos_history = vec![0u16; len as usize * len as usize];
+            let sorted_table = state.sorted_table;
+            let table_pos_history = state.table_position_history;
 
             for _ in 0..S {
                 tick(&mut state.rng, home_poisson, away_poisson, table_ptr, len);
 
                 let results = table
                     .iter()
+                    .take(state.number_of_teams as usize)
                     .map(|v| *v as i8)
                     .enumerate()
                     .map(|(i, v)| (i as u8, v))
                     .sorted_unstable_by_key(|a| -a.1);
 
-                sorted_table.copy_from_slice(results.as_slice());
+                std::ptr::copy(results.as_ref().as_ptr(), sorted_table, state.number_of_teams as usize);
 
-                for (p, &(i, _)) in sorted_table.iter().enumerate() {
+                for p in 0..state.number_of_teams {
+                    let (i, _) = *sorted_table.add(p);
                     let idx = i as u32 * len + p as u32;
-                    table_pos_history[idx as usize] += 1;
+                    *table_pos_history.add(idx as usize) += 1;
                 }
 
                 state.reset_table();
             }
 
-            table_pos_history
+            *table_pos_history
         }
     }
 
@@ -184,8 +202,6 @@ pub mod sim {
                     0b0000_0000u8
                 };
 
-                // let exclude_masks = format!("{:#010b}", exclude_mask);
-
                 let away_poisson = _mm512_load_pd(away_poisson.add(j as usize));
 
                 let mut home_goals = _mm512_setzero_pd();
@@ -199,18 +215,15 @@ pub mod sim {
                 let away = !home & !draw;
 
                 let draw_mask = draw & !exclude_mask;
-                // let draw_masks = format!("{:#010b}", draw_mask);
 
                 // Home
                 let home_mask = home & !exclude_mask;
-                // let home_masks = format!("{:#010b}", home_mask);
                 home_points = _mm512_mask_add_pd(home_points, home_mask, home_points, _mm512_set1_pd(3.0));
                 home_points = _mm512_mask_add_pd(home_points, draw_mask, home_points, _mm512_set1_pd(1.0));
 
                 // Away
                 let mut away_points = _mm512_setzero_pd();
                 let away_mask = away & !exclude_mask;
-                // let away_masks = format!("{:#010b}", away_mask);
                 away_points = _mm512_mask_add_pd(away_points, away_mask, away_points, _mm512_set1_pd(3.0));
                 away_points = _mm512_mask_add_pd(away_points, draw_mask, away_points, _mm512_set1_pd(1.0));
 
@@ -218,22 +231,10 @@ pub mod sim {
                 _mm512_store_pd(table.add(j as usize), _mm512_add_pd(table_section, away_points));
 
                 j += 8;
-                // dbg!(
-                //     home_points,
-                //     away_points,
-                //     home_masks,
-                //     draw_masks,
-                //     away_masks,
-                //     exclude_masks
-                // );
             }
 
             *table.add(i as usize) += _mm512_reduce_add_pd(home_points);
-
-            // TODO - remainders of i, j?
         }
-
-        // dbg!(table_res);
     }
 
     #[inline(always)]
@@ -297,8 +298,6 @@ pub mod sim {
             io::{BufReader, Read},
         };
 
-        use itertools::Itertools;
-
         use super::*;
 
         fn get_state() -> State {
@@ -315,44 +314,6 @@ pub mod sim {
         }
 
         #[test]
-        fn bitstuff() {
-            fn ha(a: u8, b: u8) -> u16 {
-                let a = a as u16;
-                let b = b as u16;
-                let sub = (1 * ((b - a) / 20)) + 1;
-                let r = a * 20 + b - sub;
-                let z = r * r;
-                return r;
-            }
-
-            fn har(r: u16) -> (u8, u8) {
-                let a = (r - r % 20) / 20;
-                let b = r % 20;
-                (a as u8, b as u8)
-            }
-
-            let mut has = Vec::new();
-            for i in 0..20 {
-                for j in 0..20 {
-                    if i == j {
-                        continue;
-                    }
-
-                    let ha = ha(i, j);
-                    let (i2, j2) = har(ha);
-                    // let r = (i, j, ha, i2, j2);
-                    has.push(ha);
-                }
-            }
-
-            let binding = has.iter().counts();
-            let gaps = has.iter().tuple_windows().filter(|&(a, b)| b - a > 1).collect_vec();
-            let dups = binding.iter().filter(|&(_, c)| *c > 1).collect_vec();
-
-            dbg!(gaps, dups);
-        }
-
-        #[test]
         fn size() {
             let state = get_state();
             let size = state.size_of();
@@ -366,5 +327,15 @@ pub mod sim {
             // to less than half of the L1 cache for a physical core (there are 16 logical cores)
             assert!(size < (core_l1d_size_b / 2));
         }
+
+        #[test]
+        fn actually_runs() {
+            let mut state = get_state();
+
+            let first_seed_wins = simulate::<1000>(&mut state);
+            assert!(first_seed_wins > 100 / 10);
+        }
+
+        // TODO memory management tests
     }
 }

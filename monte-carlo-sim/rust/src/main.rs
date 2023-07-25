@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use color_eyre::eyre::Result;
-use monte_carlo_sim::{TeamDto, sim};
+use monte_carlo_sim::{sim, TeamDto};
 use tokio::{
     fs::File,
     io::{AsyncReadExt, BufReader},
