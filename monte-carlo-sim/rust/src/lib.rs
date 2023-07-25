@@ -137,10 +137,18 @@ pub mod sim {
             }
         }
 
-        pub fn reset_table(&mut self) {
+        pub fn reset(&mut self) {
+            unsafe {
+                for i in 0..self.table_position_history_len {
+                    *self.table_position_history.add(i as usize) = 0;
+                }
+            }
+        }
+
+        fn reset_table(&mut self) {
             unsafe {
                 for i in 0..self.table_len {
-                    *self.table.add(i as usize) = 0f64;
+                    *self.table.add(i as usize) = 0.;
                 }
             }
         }

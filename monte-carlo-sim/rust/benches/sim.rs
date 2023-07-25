@@ -1,9 +1,10 @@
 use std::{
+    cell::RefCell,
     fs::File,
     io::{BufReader, Read},
 };
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use monte_carlo_sim::{sim, TeamDto};
 
 fn criterion_benchmark(c: &mut Criterion) {
@@ -19,9 +20,15 @@ fn criterion_benchmark(c: &mut Criterion) {
 
         let teams_dto = serde_json::from_slice::<Vec<TeamDto>>(&buf).unwrap();
 
-        let mut state = sim::State::new(&teams_dto);
+        let state = RefCell::new(sim::State::new(&teams_dto));
 
-        b.iter(|| sim::simulate::<1_000>(black_box(&mut state)))
+        b.iter_batched(
+            || {
+                state.borrow_mut().reset();
+            },
+            |_| sim::simulate::<1_000>(&mut *state.borrow_mut()),
+            BatchSize::PerIteration,
+        )
     });
 }
 

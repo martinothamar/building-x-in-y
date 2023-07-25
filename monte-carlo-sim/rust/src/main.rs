@@ -28,8 +28,11 @@ async fn main() -> Result<()> {
         let start = Instant::now();
         sim::simulate::<100_000>(&mut state);
         let stop = Instant::now();
+
         let duration = stop.duration_since(start);
         elapsed[i] = duration;
+
+        state.reset();
     }
 
     for i in 0..ITERATIONS {
