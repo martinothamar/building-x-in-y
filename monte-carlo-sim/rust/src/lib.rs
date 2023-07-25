@@ -12,6 +12,7 @@ pub struct TeamDto {
 }
 
 pub mod sim {
+    use itertools::Itertools;
     use mem::size_of;
     use std::arch::x86_64::*;
     use std::mem::{self, transmute};
@@ -53,7 +54,8 @@ pub mod sim {
             unsafe {
                 let poisson_layout =
                     alloc::Layout::from_size_align(size_of::<f64>() * self.poisson_len as usize, ALIGN).unwrap();
-                let table_layout = alloc::Layout::from_size_align(size_of::<f64>() * self.table_len as usize, ALIGN).unwrap();
+                let table_layout =
+                    alloc::Layout::from_size_align(size_of::<f64>() * self.table_len as usize, ALIGN).unwrap();
 
                 alloc::dealloc(self.home_poisson.cast(), poisson_layout);
                 alloc::dealloc(self.away_poisson.cast(), poisson_layout);
@@ -65,7 +67,6 @@ pub mod sim {
     impl State {
         pub fn new(teams: &[TeamDto]) -> Self {
             unsafe {
-                let number_of_matches = (teams.len() - 1) * teams.len();
                 let mut seed: RngImplSeed = Default::default();
                 rand::thread_rng().fill_bytes(&mut *seed);
 
@@ -134,17 +135,24 @@ pub mod sim {
 
             let home_poisson = state.home_poisson;
             let away_poisson = state.away_poisson;
-            let table = state.table;
+            let table_ptr = state.table;
 
             assert!(state.poisson_len % 8 == 0);
             assert!(state.number_of_teams < state.poisson_len);
             let len = state.number_of_teams;
 
+            let table = slice::from_raw_parts_mut(table_ptr, len as usize);
+
             for _ in 0..S {
-                // let mut table = vec![_mm512_setzero_pd(); next_multiple_of(len, 8) / 8];}
-                tick(&mut state.rng, home_poisson, away_poisson, table, len);
+                tick(&mut state.rng, home_poisson, away_poisson, table_ptr, len);
 
                 // TODO copy table
+                // let results = table
+                //     .iter()
+                //     .map(|v| *v as i16)
+                //     .enumerate()
+                //     .sorted_unstable_by_key(|a| -a.1);
+
                 state.reset_table();
             }
         }
