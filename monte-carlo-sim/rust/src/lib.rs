@@ -126,7 +126,7 @@ pub mod sim {
     }
 
     #[inline(never)]
-    pub fn simulate<const S: usize>(state: &mut State) {
+    pub fn simulate<const S: usize>(state: &mut State) -> Vec<u16> {
         unsafe {
             // assert!(state.matches.poisson.len() == state.matches.score.len());
 
@@ -142,26 +142,35 @@ pub mod sim {
             let len = state.number_of_teams;
 
             let table = slice::from_raw_parts_mut(table_ptr, len as usize);
+            let mut sorted_table = vec![Default::default(); len as usize];
+            let mut table_pos_history = vec![0u16; len as usize * len as usize];
 
             for _ in 0..S {
                 tick(&mut state.rng, home_poisson, away_poisson, table_ptr, len);
 
-                // TODO copy table
-                // let results = table
-                //     .iter()
-                //     .map(|v| *v as i16)
-                //     .enumerate()
-                //     .sorted_unstable_by_key(|a| -a.1);
+                let results = table
+                    .iter()
+                    .map(|v| *v as i8)
+                    .enumerate()
+                    .map(|(i, v)| (i as u8, v))
+                    .sorted_unstable_by_key(|a| -a.1);
+
+                sorted_table.copy_from_slice(results.as_slice());
+
+                for (p, &(i, _)) in sorted_table.iter().enumerate() {
+                    let idx = i as u32 * len + p as u32;
+                    table_pos_history[idx as usize] += 1;
+                }
 
                 state.reset_table();
             }
+
+            table_pos_history
         }
     }
 
     #[inline(always)]
     unsafe fn tick(rng: &mut RngImpl, home_poisson: *mut f64, away_poisson: *mut f64, table: *mut f64, len: u32) {
-        let _table_res = slice::from_raw_parts(table, len as usize);
-
         for i in 0..len {
             let home_poisson = _mm512_set1_pd(*home_poisson.add(i as usize));
             let mut home_points = _mm512_setzero_pd();
