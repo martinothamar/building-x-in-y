@@ -43,8 +43,8 @@ pub mod sim {
 
     // Simulation returns slices into memory allocated
     // in the 'markets_allocator' arena allocator
-    pub type Markets<'a> = &'a[Market<'a>];
-    pub type Outcomes<'a> = &'a[Outcome];
+    pub type Markets<'a> = &'a [Market<'a>];
+    pub type Outcomes<'a> = &'a [Outcome];
 
     pub enum MarketType {
         Winner,
@@ -325,29 +325,52 @@ pub mod sim {
     }
 
     #[inline(always)]
-    unsafe fn simulate_sides(poisson_vec: __m512d, goals: &mut __m512d, rng: &mut RngImpl) {
-        let mut product_vec = rng.next_m512d();
+    #[allow(non_snake_case)]
+    unsafe fn simulate_sides(L: __m512d, k: &mut __m512d, rng: &mut RngImpl) {
+        /*
+        algorithm poisson random number (Knuth):
+            init:
+                Let L ← e−λ, k ← 0 and p ← 1.
+            do:
+                k ← k + 1.
+                Generate uniform random number u in [0,1] and let p ← p × u.
+            while p > L.
+            return k − 1.
+        */
+        let mut p = rng.next_m512d();
 
         loop {
-            let sub = _mm512_sub_pd(product_vec, poisson_vec);
+            let sub = _mm512_sub_pd(p, L);
+
+            // if all lanes in sub are negative, then the p > L condition is false
+            // and we should exit the loop.
+            // `mm512_movemask_pd` sets all lane bits in the mask to 1 where the lane is negative
             let mask = mm512_movemask_pd(sub);
             if mask == 0xFF {
                 break;
             }
 
-            *goals = _mm512_add_pd(*goals, _mm512_roundscale_pd::<2>(sub));
+            // If all the mask bits are not set, then there are still some matches that are simulating
+            // and we can add to k and get the next random numbers
+            *k = _mm512_add_pd(*k, _mm512_roundscale_pd::<2>(sub));
 
             let next_product_vec = rng.next_m512d();
-            product_vec = _mm512_mul_pd(product_vec, next_product_vec);
+            p = _mm512_mul_pd(p, next_product_vec);
         }
     }
 
     #[inline(never)]
     unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: &'a mut Bump) -> Markets<'a> {
+        // An arena allocator is important here, since the output markets
+        // are always dynamic in size, dependent on simulation results.
+        // This lets the caller control the lifetime of the allocated memory.
         let allocator: &'a Bump = markets_allocator;
 
         let markets: Vec<Market<'a>, &'a Bump> = MarketVec::with_capacity_in(4, allocator);
-        let mut markets = std::mem::ManuallyDrop::new(markets);
+        // Wrap allocations in `ManuallyDrop` to ensure that the allocations live on in the input allocator
+        // Bumpalo may free memory that is dropped if it is the most recent allocation
+        // (meaning it wouldn't create any holes/fragmentation in the underlying memory)
+        let mut markets: mem::ManuallyDrop<Vec<Market<'_>, &Bump>> = std::mem::ManuallyDrop::new(markets);
 
         let table_position_history = state.table_position_history.as_ptr();
         {
@@ -372,6 +395,10 @@ pub mod sim {
             }
             markets.push(Market {
                 market_type: MarketType::Winner,
+                // We have to manually construct the slice since the borrow-checker
+                // doesn't understand that `as_slice()` from the vector
+                // has the lifetime of 'a (the allocators lifetime)
+                // Should be a better way to do this...
                 outcomes: slice::from_raw_parts(outcomes.as_ptr(), outcomes.len()),
             });
         }
@@ -494,6 +521,47 @@ pub mod sim {
 
                 state.reset();
                 markets_allocator.reset();
+            }
+        }
+
+        #[test]
+        fn manuallydrop_works_like_i_think_it_should() {
+            let markets_allocator = new_allocator();
+
+            let markets1 = ThingThatShouldNotDrop::with_capacity_in(4, &markets_allocator, false);
+            let markets1 = std::mem::ManuallyDrop::new(markets1);
+
+            let markets2 = ThingThatShouldNotDrop::with_capacity_in(4, &markets_allocator, true);
+
+            unsafe {
+                let slice = slice::from_raw_parts(markets1.markets.as_ptr(), markets1.markets.len());
+                assert!(slice.len() == 0);
+                assert!(markets1.markets.capacity() == 4);
+            }
+            unsafe {
+                let slice = slice::from_raw_parts(markets2.markets.as_ptr(), markets2.markets.len());
+                assert!(slice.len() == 0);
+                assert!(markets2.markets.capacity() == 4);
+            }
+        }
+
+        struct ThingThatShouldNotDrop<'a> {
+            markets: MarketVec<'a>,
+            should_drop: bool,
+        }
+
+        impl<'a> ThingThatShouldNotDrop<'a> {
+            pub fn with_capacity_in(capacity: usize, alloc: &'a Bump, should_drop: bool) -> Self {
+                Self {
+                    markets: MarketVec::with_capacity_in(capacity, alloc),
+                    should_drop,
+                }
+            }
+        }
+
+        impl<'a> Drop for ThingThatShouldNotDrop<'a> {
+            fn drop(&mut self) {
+                assert!(self.should_drop);
             }
         }
 
