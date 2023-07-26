@@ -346,13 +346,16 @@ pub mod sim {
             // and we should exit the loop.
             // `mm512_movemask_pd` sets all lane bits in the mask to 1 where the lane is negative
             let mask = mm512_movemask_pd(sub);
+            // let mask = _mm512_cmplt_pd_mask(sub, _mm512_setzero_pd()); // same perf
             if mask == 0xFF {
                 break;
             }
 
             // If all the mask bits are not set, then there are still some matches that are simulating
-            // and we can add to k and get the next random numbers
-            *k = _mm512_add_pd(*k, _mm512_roundscale_pd::<2>(sub));
+            // and we can add to k and get the next random numbers.
+            // Since L is at most 1.0, subtracting p [0.0..1.0) by L should always end up at 0 or 1 (hopefully)
+            *k = _mm512_add_pd(*k, _mm512_roundscale_pd::<_MM_FROUND_TO_POS_INF>(sub));
+            // *k = _mm512_mask_add_pd(*k, !mask, *k, _mm512_set1_pd(1.0)); // slower perf
 
             let next_product_vec = rng.next_m512d();
             p = _mm512_mul_pd(p, next_product_vec);
