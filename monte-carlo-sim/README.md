@@ -139,6 +139,10 @@ median [2.5497 ms 2.5670 ms] med. abs. dev. [26.345 µs 51.321 µs]
        0.000000000 seconds sys
 ```
 
+## Flamegraph
+
+![Flamegraph from `cargo flamegraph`](/monte-carlo-sim/rust/flamegraph.svg)
+
 ## Next steps?
 
 I don't know here to go next, but I have some ideas that could be investigated
