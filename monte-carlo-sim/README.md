@@ -9,7 +9,7 @@ where the canonical market example is this:
 We already had ratings for all teams in the form of **expected goals** which is the number of goals we expect from a team in a match (in some league/season).
 We then used the [Monte Carlo method](https://en.wikipedia.org/wiki/Monte_Carlo_method) to simulate all the matches (or remaining matches) of a season.
 
-The expected goals rating was used feeding the Lambda variable (L = exp(−expected_goals)) when sampling from a [poisson distribution](https://en.wikipedia.org/wiki/Poisson_distribution) using Knuth's algorithm (appropriate for small L's). Before extracting the probabilities for outright markets, we typically simulated all the matches of a season 100'000 times. The system then counted how many times each team won the season, and a whole bunch of other metrics that we could build market probabilities from.
+The expected goals rating was used feeding the Lambda variable (`L = exp(−expected_goals)`) when sampling from a [poisson distribution](https://en.wikipedia.org/wiki/Poisson_distribution) using Knuth's algorithm (appropriate for small L's). Before extracting the probabilities for outright markets, we typically simulated all the matches of a season 100'000 times. The system then counted how many times each team won the season, and a whole bunch of other metrics that we could build market probabilities from.
 
 This project will probably be updated over time as I experiment with new ideas on how to optimize code.
 
@@ -73,21 +73,17 @@ Constraints
 
 ## Results
 
-I have implemented the simulation part of the system (no extraction of markets).
+I have implemented the simulation part of the system, and extraction of market probabilities for two markets - Winner and Top4.
 The resulting solution is written in Rust in the [`rust`-folder](/monte-carlo-sim/rust/).
 Benchmarks and perf counter stats are reported below. The generated code is pretty good,
-and largely utilizes zmm-registers (which are the 512bit wide ones that can contain 8 lanes of 64bit numbers).
-Pretty good in that I personally (with my current knowledge of these topics)
-won't be able to progress farther without [analyzing latency and reciprocal throughput](https://www.agner.org/optimize/instruction_tables.pdf) of
-the instructions themselves and trying to find other sets of instructions that accomplish the same but in higher throughput, lower latency or both.
+and largely utilizes zmm-registers (which are the 512bit wide ones that can contain 8 lanes of 64bit numbers) in the the hot loop.
 Use `make dasm` to inspect the generated code.
 
 As part of getting here, I built [simd-rand](https://github.com/martinothamar/simd-rand), a Rust library containing
 vectorized implementations of (already) fast PRNGs. I found Xoshiro256+ to be the fastest generator with good enough statistical properties (I think)
 for my usecase. As soon as the RNG data was vectorized, I started vectorizing the whole simulation.
-In the end the solution simulates 4 matches at the same time. The "goals scored"-vector looks liks this: `[home1, away1, ..., home4, away4]`.
-The inner loop looks fairly tight. Vectorizaion is great on many levels. There is the efficient parallelization, but there is also the
-amortization of branches (the innermost branch is executed once per 8 goal simulations instead of 1 goal simulation so to speak),
+In the end the solution simulates 4 matches at the same time. Vectorizaion is great on many levels. There is the efficient parallelization, but there is also the
+amortization (and elimination) of branches (the innermost branch is executed once per 8 goal simulations instead of 1 goal simulation so to speak),
 which noticably impacts branch misprediction % reported from `perf stat`.
 
 ### Benchmark
