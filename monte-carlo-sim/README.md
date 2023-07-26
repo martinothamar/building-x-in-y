@@ -11,7 +11,8 @@ We then used the [Monte Carlo method](https://en.wikipedia.org/wiki/Monte_Carlo_
 
 The expected goals rating was used feeding the Lambda variable (`L = exp(−expected_goals)`) when sampling from a [poisson distribution](https://en.wikipedia.org/wiki/Poisson_distribution) using Knuth's algorithm (appropriate for small L's). Before extracting the probabilities for outright markets, we typically simulated all the matches of a season 100'000 times. The system then counted how many times each team won the season, and a whole bunch of other metrics that we could build market probabilities from.
 
-This project will probably be updated over time as I experiment with new ideas on how to optimize code.
+> **Note**
+> This project will be updated over time as I experiment and learn new things. I'll keep the benchmarking, stats and profiles up to date as I change the implementation. The algorithms, datastructures and code in general with be documented inline with the code in the [/rust-folder](/monte-carlo-sim/rust/).
 
 ## Previous implementations
 
