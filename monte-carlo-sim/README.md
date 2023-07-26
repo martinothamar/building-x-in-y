@@ -147,7 +147,7 @@ median [2.5497 ms 2.5670 ms] med. abs. dev. [26.345 µs 51.321 µs]
 
 I don't know here to go next, but I have some ideas that could be investigated
 
-* Deeper analysis of the performance of the vectorized instructions used in the hot loop
+* Deeper analysis of the performance of the vectorized instructions used in the hot loop ([read up on Agner Fog's instruction tables](https://www.agner.org/optimize/instruction_tables.pdf))
 * GPU parallelization (I did build a CUDA kernel prototype of this once, but it wasn't as fast. I'm probably bad at GPU)
 * CPU parallelization (doubt this is good)
 * Other algorithms?
