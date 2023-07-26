@@ -483,6 +483,7 @@ dependencies = [
 name = "monte-carlo-sim"
 version = "0.1.0"
 dependencies = [
+ "bumpalo",
  "color-eyre",
  "criterion",
  "itertools 0.11.0",

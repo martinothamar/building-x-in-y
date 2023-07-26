@@ -20,7 +20,8 @@ fn criterion_benchmark(c: &mut Criterion) {
 
         let teams_dto = serde_json::from_slice::<Vec<TeamDto>>(&buf).unwrap();
 
-        let state = RefCell::new(sim::State::new(&teams_dto));
+        let mut allocator = sim::new_allocator();
+        let state = RefCell::new(sim::State::new(&mut allocator, &teams_dto));
         let mut markets = sim::Market::new_collection();
 
         b.iter_batched(

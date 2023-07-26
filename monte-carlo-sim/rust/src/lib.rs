@@ -12,11 +12,13 @@ pub struct TeamDto {
 }
 
 pub mod sim {
+    use bumpalo::Bump;
     use itertools::Itertools;
     use mem::size_of;
     use std::arch::x86_64::*;
     use std::mem::{self, transmute};
     use std::ops::Neg;
+    use std::ptr::NonNull;
     use std::{alloc, slice};
 
     use rand::{RngCore, SeedableRng};
@@ -58,11 +60,11 @@ pub mod sim {
         table_len: u32,
         sorted_table_len: u32,
         table_position_history_len: u32,
-        home_poisson: *mut f64,
-        away_poisson: *mut f64,
-        table: *mut f64,
-        sorted_table: *mut (u8, i8),
-        table_position_history: *mut u16,
+        home_poisson: NonNull<f64>,
+        away_poisson: NonNull<f64>,
+        table: NonNull<f64>,
+        sorted_table: NonNull<(u8, i8)>,
+        table_position_history: NonNull<u16>,
     }
 
     impl State {
@@ -76,31 +78,35 @@ pub mod sim {
         }
     }
 
-    impl Drop for State {
-        fn drop(&mut self) {
-            unsafe {
-                let poisson_layout =
-                    alloc::Layout::from_size_align(size_of::<f64>() * self.poisson_len as usize, ALIGN).unwrap();
-                let table_layout =
-                    alloc::Layout::from_size_align(size_of::<f64>() * self.table_len as usize, ALIGN).unwrap();
-                let sorted_table_layout =
-                    alloc::Layout::from_size_align(size_of::<(u8, i8)>() * self.sorted_table_len as usize, ALIGN)
-                        .unwrap();
-                let table_position_history_layout =
-                    alloc::Layout::from_size_align(size_of::<u16>() * self.table_position_history_len as usize, ALIGN)
-                        .unwrap();
+    // impl Drop for State {
+    //     fn drop(&mut self) {
+    //         unsafe {
+    //             let poisson_layout =
+    //                 alloc::Layout::from_size_align(size_of::<f64>() * self.poisson_len as usize, ALIGN).unwrap();
+    //             let table_layout =
+    //                 alloc::Layout::from_size_align(size_of::<f64>() * self.table_len as usize, ALIGN).unwrap();
+    //             let sorted_table_layout =
+    //                 alloc::Layout::from_size_align(size_of::<(u8, i8)>() * self.sorted_table_len as usize, ALIGN)
+    //                     .unwrap();
+    //             let table_position_history_layout =
+    //                 alloc::Layout::from_size_align(size_of::<u16>() * self.table_position_history_len as usize, ALIGN)
+    //                     .unwrap();
 
-                alloc::dealloc(self.home_poisson.cast(), poisson_layout);
-                alloc::dealloc(self.away_poisson.cast(), poisson_layout);
-                alloc::dealloc(self.table.cast(), table_layout);
-                alloc::dealloc(self.sorted_table.cast(), sorted_table_layout);
-                alloc::dealloc(self.table_position_history.cast(), table_position_history_layout);
-            }
-        }
+    //             alloc::dealloc(self.home_poisson.cast(), poisson_layout);
+    //             alloc::dealloc(self.away_poisson.cast(), poisson_layout);
+    //             alloc::dealloc(self.table.cast(), table_layout);
+    //             alloc::dealloc(self.sorted_table.cast(), sorted_table_layout);
+    //             alloc::dealloc(self.table_position_history.cast(), table_position_history_layout);
+    //         }
+    //     }
+    // }
+
+    pub fn new_allocator() -> Bump {
+        Bump::with_capacity(1024 * 8)
     }
 
     impl State {
-        pub fn new(teams: &[TeamDto]) -> Self {
+        pub fn new(allocator: &mut Bump, teams: &[TeamDto]) -> Self {
             unsafe {
                 let mut seed: RngImplSeed = Default::default();
                 rand::thread_rng().fill_bytes(&mut *seed);
@@ -117,14 +123,14 @@ pub mod sim {
                 let table_position_history_layout =
                     alloc::Layout::from_size_align(size_of::<u16>() * table_position_history_len, ALIGN).unwrap();
 
-                let home_poisson_ptr = alloc::alloc(poisson_layout).cast::<f64>();
-                let away_poisson_ptr = alloc::alloc(poisson_layout).cast::<f64>();
-                let table_ptr = alloc::alloc_zeroed(table_layout).cast::<f64>();
-                let sorted_table_ptr = alloc::alloc_zeroed(sorted_table_layout).cast::<(u8, i8)>();
-                let table_position_history_ptr = alloc::alloc_zeroed(table_position_history_layout).cast::<u16>();
+                let home_poisson_ptr = allocator.alloc_layout(poisson_layout).cast::<f64>();
+                let away_poisson_ptr = allocator.alloc_layout(poisson_layout).cast::<f64>();
+                let table_ptr = allocator.alloc_layout(table_layout).cast::<f64>();
+                let sorted_table_ptr = allocator.alloc_layout(sorted_table_layout).cast::<(u8, i8)>();
+                let table_position_history_ptr = allocator.alloc_layout(table_position_history_layout).cast::<u16>();
 
-                let home_poisson = slice::from_raw_parts_mut(home_poisson_ptr.cast(), poisson_len);
-                let away_poisson = slice::from_raw_parts_mut(away_poisson_ptr.cast(), poisson_len);
+                let home_poisson = slice::from_raw_parts_mut(home_poisson_ptr.as_ptr(), poisson_len);
+                let away_poisson = slice::from_raw_parts_mut(away_poisson_ptr.as_ptr(), poisson_len);
 
                 for i in 0..poisson_len {
                     if i < teams.len() {
@@ -160,16 +166,18 @@ pub mod sim {
 
         pub fn reset(&mut self) {
             unsafe {
+                let table_position_history = self.table_position_history.as_ptr();
                 for i in 0..self.table_position_history_len {
-                    *self.table_position_history.add(i as usize) = 0;
+                    *table_position_history.add(i as usize) = 0;
                 }
             }
         }
 
         fn reset_table(&mut self) {
             unsafe {
+                let table = self.table.as_ptr();
                 for i in 0..self.table_len {
-                    *self.table.add(i as usize) = 0.;
+                    *table.add(i as usize) = 0.;
                 }
             }
         }
@@ -182,17 +190,17 @@ pub mod sim {
         }
 
         unsafe {
-            let home_poisson = state.home_poisson;
-            let away_poisson = state.away_poisson;
-            let table_ptr = state.table;
+            let home_poisson = state.home_poisson.as_ptr();
+            let away_poisson = state.away_poisson.as_ptr();
+            let table_ptr = state.table.as_ptr();
 
             assert!(state.poisson_len % 8 == 0);
             assert!(state.number_of_teams < state.poisson_len as usize);
             let len = state.number_of_teams as u32;
 
             let table = slice::from_raw_parts_mut(table_ptr, len as usize);
-            let sorted_table = state.sorted_table;
-            let table_pos_history = state.table_position_history;
+            let sorted_table = state.sorted_table.as_ptr();
+            let table_pos_history = state.table_position_history.as_ptr();
 
             for _ in 0..S {
                 tick(&mut state.rng, home_poisson, away_poisson, table_ptr, len);
@@ -294,7 +302,7 @@ pub mod sim {
     unsafe fn extract_markets<const S: usize>(state: &State, markets: &mut Vec<Market>) {
         assert!(markets.len() == 0);
 
-        let table_position_history = state.table_position_history;
+        let table_position_history = state.table_position_history.as_ptr();
         {
             // Winner - probability of winning the season
             let mut outcomes = Vec::with_capacity(state.number_of_teams); // TODO - smarter allocations
@@ -392,7 +400,7 @@ pub mod sim {
 
         use super::*;
 
-        fn get_state() -> State {
+        fn get_state(allocator: &mut Bump) -> State {
             let file =
                 File::open("../input.json").unwrap_or_else(|_| File::open("monte-carlo-sim/input.json").unwrap());
             let mut file = BufReader::new(file);
@@ -402,12 +410,13 @@ pub mod sim {
             let teams_dto = serde_json::from_slice::<Vec<TeamDto>>(&buf).unwrap();
 
             const ITERATIONS: usize = 32;
-            State::new(&teams_dto)
+            State::new(allocator, &teams_dto)
         }
 
         #[test]
         fn size() {
-            let state = get_state();
+            let mut allocator = new_allocator();
+            let state = get_state(&mut allocator);
             let size = state.size_of();
 
             // As per lscpu, I have 384KiB total L1 data cache, across 8 cores
@@ -422,7 +431,8 @@ pub mod sim {
 
         #[test]
         fn actually_runs() {
-            let mut state = get_state();
+            let mut allocator = new_allocator();
+            let mut state = get_state(&mut allocator);
 
             let mut markets = Market::new_collection();
             let first_seed_wins = simulate::<1000>(&mut state, &mut markets);

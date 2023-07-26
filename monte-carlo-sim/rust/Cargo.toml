@@ -13,6 +13,7 @@ color-eyre = "0.5"
 simd_rand = { git = "https://github.com/martinothamar/simd-rand" }
 rand = "0.8.5"
 itertools = "0.11.0"
+bumpalo = { version = "3.13", features = ["allocator_api", "collections"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
