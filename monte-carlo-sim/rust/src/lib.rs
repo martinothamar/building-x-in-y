@@ -30,6 +30,27 @@ pub mod sim {
     type RngImpl = Xoshiro256PlusX8;
     type RngImplSeed = Xoshiro256PlusX8Seed;
 
+    pub enum MarketType {
+        Winner,
+        Top4,
+    }
+
+    pub struct Market {
+        market_type: MarketType,
+        outcomes: Vec<Outcome>,
+    }
+
+    impl Market {
+        pub fn new_collection() -> Vec<Self> {
+            Vec::with_capacity(4)
+        }
+    }
+
+    pub struct Outcome {
+        team_idx: usize,
+        probability: f64,
+    }
+
     pub struct State {
         rng: RngImpl,
         number_of_teams: usize,
@@ -37,8 +58,8 @@ pub mod sim {
         table_len: u32,
         sorted_table_len: u32,
         table_position_history_len: u32,
-        home_poisson: *mut f64, // len = next_multiple_of(len(teams), 8)
-        away_poisson: *mut f64, // len = next_multiple_of(len(teams), 8)
+        home_poisson: *mut f64,
+        away_poisson: *mut f64,
         table: *mut f64,
         sorted_table: *mut (u8, i8),
         table_position_history: *mut u16,
@@ -155,7 +176,11 @@ pub mod sim {
     }
 
     #[inline(never)]
-    pub fn simulate<const S: usize>(state: &mut State) -> u16 {
+    pub fn simulate<const S: usize>(state: &mut State, markets: &mut Vec<Market>) -> u16 {
+        if markets.len() > 0 {
+            markets.clear();
+        }
+
         unsafe {
             let home_poisson = state.home_poisson;
             let away_poisson = state.away_poisson;
@@ -190,6 +215,8 @@ pub mod sim {
 
                 state.reset_table();
             }
+
+            extract_markets::<S>(state, markets);
 
             *table_pos_history
         }
@@ -263,6 +290,63 @@ pub mod sim {
         }
     }
 
+    #[inline(never)]
+    unsafe fn extract_markets<const S: usize>(state: &State, markets: &mut Vec<Market>) {
+        assert!(markets.len() == 0);
+
+        let table_position_history = state.table_position_history;
+        {
+            // Winner - probability of winning the season
+            let mut outcomes = Vec::with_capacity(state.number_of_teams); // TODO - smarter allocations
+            for i in 0..state.number_of_teams {
+                let idx = i * state.number_of_teams + 0; // 0 for the winner position
+                let number_of_wins = *table_position_history.add(idx);
+                if number_of_wins == 0 {
+                    continue;
+                }
+                let probability = number_of_wins as f64 / S as f64;
+                if probability < 0.01 {
+                    // Very low probabilities are typically filtered out
+                    continue;
+                }
+                outcomes.push(Outcome {
+                    team_idx: i,
+                    probability,
+                })
+            }
+            markets.push(Market {
+                market_type: MarketType::Winner,
+                outcomes,
+            });
+        }
+
+        {
+            // Top 4 - probability of completing the season in the top 4
+            let mut outcomes = Vec::with_capacity(state.number_of_teams);
+            for i in 0..state.number_of_teams {
+                let base_idx = i * state.number_of_teams; // 0 for the winner position
+                let top_4_state = [
+                    *table_position_history.add(base_idx + 0),
+                    *table_position_history.add(base_idx + 1),
+                    *table_position_history.add(base_idx + 2),
+                    *table_position_history.add(base_idx + 3),
+                ];
+                let probability = top_4_state.iter().map(|&v| v as u32).sum::<u32>() as f64 / S as f64;
+                if probability < 0.01 {
+                    continue;
+                }
+                outcomes.push(Outcome {
+                    team_idx: i,
+                    probability,
+                })
+            }
+            markets.push(Market {
+                market_type: MarketType::Top4,
+                outcomes,
+            });
+        }
+    }
+
     // There is no simple intrinsic for movemask as there is in other AVX2 (which is a single instruction intrinsic)
     // here is an equivalent for AVX512
     // taken from here: https://github.com/flang-compiler/flang/blob/d9280ff4e0cb296abec03ee7bb4a2b04f7dae932/runtime/libpgmath/lib/common/mth_avx512helper.h#L215
@@ -332,7 +416,7 @@ pub mod sim {
 
             // This machine has hyperthreading though, so a different logical core
             // might compete over L1 cache resources, so I atleast want to stick
-            // to less than half of the L1 cache for a physical core (there are 16 logical cores)
+            // to less than half of the L1 cache for a physical core, just in case (there are 16 logical cores)
             assert!(size < (core_l1d_size_b / 2));
         }
 
@@ -340,8 +424,10 @@ pub mod sim {
         fn actually_runs() {
             let mut state = get_state();
 
-            let first_seed_wins = simulate::<1000>(&mut state);
+            let mut markets = Market::new_collection();
+            let first_seed_wins = simulate::<1000>(&mut state, &mut markets);
             assert!(first_seed_wins > 100 / 10);
+            assert!(markets.len() > 0);
         }
 
         // TODO memory management tests

@@ -22,11 +22,13 @@ async fn main() -> Result<()> {
 
     const ITERATIONS: usize = 32;
     let mut state = sim::State::new(&teams_dto);
+    let mut markets = sim::Market::new_collection();
+
     let mut elapsed = [Duration::ZERO; ITERATIONS];
 
     for i in 0..ITERATIONS {
         let start = Instant::now();
-        sim::simulate::<100_000>(&mut state);
+        sim::simulate::<100_000>(&mut state, &mut markets);
         let stop = Instant::now();
 
         let duration = stop.duration_since(start);

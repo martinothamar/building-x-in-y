@@ -92,10 +92,17 @@ which noticably impacts branch misprediction % reported from `perf stat`.
 
 ### Benchmark
 
+During benchmarking, we simulate only 1'000 times, which lets us complete is a couple of milliseconds.
+It's generally good practice to keep the latency of benchmarks low (for example to keep within an OS scheduler timeslice)
+
 ```
-Simulation/simulation 100_000
-                        time:   [205.30 ms 205.94 ms 206.60 ms]
-                        thrpt:  [484.04 Kelem/s 485.58 Kelem/s 487.10 Kelem/s]
+Simulation/simulation 1_000
+                        time:   [2.5403 ms 2.5489 ms 2.5573 ms]
+                        thrpt:  [391.04 Kelem/s 392.33 Kelem/s 393.66 Kelem/s]
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+mean   [2.5403 ms 2.5573 ms] std. dev.      [37.783 µs 49.340 µs]
+median [2.5497 ms 2.5670 ms] med. abs. dev. [26.345 µs 51.321 µs]
 ```
 
 ### Perf stats
@@ -103,35 +110,35 @@ Simulation/simulation 100_000
 ```
  Performance counter stats for '../../target/release/monte-carlo-sim':
 
-           5735.63 msec task-clock:u              #    0.923 CPUs utilized
+           8295.60 msec task-clock:u              #    0.999 CPUs utilized
                  0      context-switches:u        #    0.000 /sec
                  0      cpu-migrations:u          #    0.000 /sec
-               117      page-faults:u             #   20.399 /sec
-       24327058987      cycles:u                  #    4.241 GHz                      (45.19%)
-       34439060727      instructions:u            #    1.42  insn per cycle           (54.36%)
-        2020378487      branches:u                #  352.251 M/sec                    (63.53%)
-         267741720      branch-misses:u           #   13.25% of all branches          (72.71%)
-      121349368923      slots:u                   #   21.157 G/sec                    (81.87%)
-       19245861985      topdown-retiring:u        #     13.9% retiring                (81.87%)
-      110879500339      topdown-bad-spec:u        #     80.2% bad speculation         (81.87%)
-          48249862      topdown-fe-bound:u        #      0.0% frontend bound          (81.87%)
-        8162810095      topdown-be-bound:u        #      5.9% backend bound           (81.87%)
-         304407735      L1-dcache-loads:u         #   53.073 M/sec                    (81.97%)
-            760950      L1-dcache-load-misses:u   #    0.25% of all L1-dcache accesses  (81.97%)
+               111      page-faults:u             #   13.381 /sec
+       35149873093      cycles:u                  #    4.237 GHz                      (45.24%)
+       45128122355      instructions:u            #    1.28  insn per cycle           (54.40%)
+        2855347801      branches:u                #  344.200 M/sec                    (63.56%)
+         441162510      branch-misses:u           #   15.45% of all branches          (72.72%)
+      174013920400      slots:u                   #   20.977 G/sec                    (81.88%)
+       26704121408      topdown-retiring:u        #     13.3% retiring                (81.88%)
+      155588500464      topdown-bad-spec:u        #     77.6% bad speculation         (81.88%)
+        1773971873      topdown-fe-bound:u        #      0.9% frontend bound          (81.88%)
+       16521169391      topdown-be-bound:u        #      8.2% backend bound           (81.88%)
+        1839627062      L1-dcache-loads:u         #  221.759 M/sec                    (81.92%)
+            432728      L1-dcache-load-misses:u   #    0.02% of all L1-dcache accesses  (81.92%)
    <not supported>      LLC-loads:u
    <not supported>      LLC-load-misses:u
    <not supported>      L1-icache-loads:u
-             61710      L1-icache-load-misses:u                                       (81.98%)
-         304094602      dTLB-loads:u              #   53.019 M/sec                    (81.98%)
-              2141      dTLB-load-misses:u        #    0.00% of all dTLB cache accesses  (36.05%)
+            967885      L1-icache-load-misses:u                                       (81.92%)
+        1837218912      dTLB-loads:u              #  221.469 M/sec                    (81.93%)
+              8047      dTLB-load-misses:u        #    0.00% of all dTLB cache accesses  (36.16%)
    <not supported>      iTLB-loads:u
-               904      iTLB-load-misses:u                                            (36.05%)
+             74548      iTLB-load-misses:u                                            (36.16%)
    <not supported>      L1-dcache-prefetches:u
    <not supported>      L1-dcache-prefetch-misses:u
 
-       6.214219801 seconds time elapsed
+       8.300780891 seconds time elapsed
 
-       5.735977000 seconds user
+       8.295941000 seconds user
        0.000000000 seconds sys
 ```
 
