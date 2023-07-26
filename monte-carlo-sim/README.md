@@ -141,6 +141,9 @@ median [2.5497 ms 2.5670 ms] med. abs. dev. [26.345 µs 51.321 µs]
 
 ## Flamegraph
 
+About 70% of the time is spent simulating the matches (sampling goals from poisson distribution).
+**[Open the raw file to inspect the flamegraph](https://raw.githubusercontent.com/martinothamar/building-x-in-y/main/monte-carlo-sim/rust/flamegraph.svg)**
+
 ![Flamegraph from `cargo flamegraph`](/monte-carlo-sim/rust/flamegraph.svg)
 
 ## Next steps?
