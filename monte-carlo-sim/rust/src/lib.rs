@@ -32,25 +32,25 @@ pub mod sim {
     type RngImpl = Xoshiro256PlusX8;
     type RngImplSeed = Xoshiro256PlusX8Seed;
 
+    type MarketVec<'a> = Vec<Market<'a>, &'a Bump>;
+    type OutcomeVec<'a> = Vec<Outcome, &'a Bump>;
+
+    pub type Markets<'a> = &'a[Market<'a>];
+    pub type Outcomes<'a> = &'a[Outcome];
+
     pub enum MarketType {
         Winner,
         Top4,
     }
 
-    pub struct Market {
-        market_type: MarketType,
-        outcomes: Vec<Outcome>,
-    }
-
-    impl Market {
-        pub fn new_collection() -> Vec<Self> {
-            Vec::with_capacity(4)
-        }
+    pub struct Market<'a> {
+        pub market_type: MarketType,
+        pub outcomes: Outcomes<'a>,
     }
 
     pub struct Outcome {
-        team_idx: usize,
-        probability: f64,
+        pub team_idx: usize,
+        pub probability: f64,
     }
 
     pub struct State {
@@ -102,7 +102,10 @@ pub mod sim {
     // }
 
     pub fn new_allocator() -> Bump {
-        Bump::with_capacity(1024 * 8)
+        const ALLOC: usize = 1024 * 4;
+        let allocator = Bump::with_capacity(ALLOC);
+        allocator.set_allocation_limit(Some(ALLOC));
+        allocator
     }
 
     impl State {
@@ -184,11 +187,7 @@ pub mod sim {
     }
 
     #[inline(never)]
-    pub fn simulate<const S: usize>(state: &mut State, markets: &mut Vec<Market>) -> u16 {
-        if markets.len() > 0 {
-            markets.clear();
-        }
-
+    pub fn simulate<'a, const S: usize>(state: &mut State, markets_allocator: &'a mut Bump) -> Markets<'a> {
         unsafe {
             let home_poisson = state.home_poisson.as_ptr();
             let away_poisson = state.away_poisson.as_ptr();
@@ -224,9 +223,9 @@ pub mod sim {
                 state.reset_table();
             }
 
-            extract_markets::<S>(state, markets);
+            let markets = extract_markets::<S>(state, markets_allocator);
 
-            *table_pos_history
+            markets
         }
     }
 
@@ -299,13 +298,17 @@ pub mod sim {
     }
 
     #[inline(never)]
-    unsafe fn extract_markets<const S: usize>(state: &State, markets: &mut Vec<Market>) {
-        assert!(markets.len() == 0);
+    unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: &'a mut Bump) -> Markets<'a> {
+        let allocator: &'a Bump = markets_allocator;
+
+        let markets: Vec<Market<'a>, &'a Bump> = MarketVec::with_capacity_in(4, allocator);
+        let mut markets = std::mem::ManuallyDrop::new(markets);
 
         let table_position_history = state.table_position_history.as_ptr();
         {
             // Winner - probability of winning the season
-            let mut outcomes = Vec::with_capacity(state.number_of_teams); // TODO - smarter allocations
+            let outcomes: Vec<Outcome, &'a Bump> = OutcomeVec::with_capacity_in(state.number_of_teams, allocator);
+            let mut outcomes = std::mem::ManuallyDrop::new(outcomes);
             for i in 0..state.number_of_teams {
                 let idx = i * state.number_of_teams + 0; // 0 for the winner position
                 let number_of_wins = *table_position_history.add(idx);
@@ -324,13 +327,14 @@ pub mod sim {
             }
             markets.push(Market {
                 market_type: MarketType::Winner,
-                outcomes,
+                outcomes: slice::from_raw_parts(outcomes.as_ptr(), outcomes.len()),
             });
         }
 
         {
             // Top 4 - probability of completing the season in the top 4
-            let mut outcomes = Vec::with_capacity(state.number_of_teams);
+            let outcomes: Vec<Outcome, &'a Bump> = OutcomeVec::with_capacity_in(state.number_of_teams, allocator);
+            let mut outcomes = std::mem::ManuallyDrop::new(outcomes);
             for i in 0..state.number_of_teams {
                 let base_idx = i * state.number_of_teams; // 0 for the winner position
                 let top_4_state = [
@@ -348,11 +352,14 @@ pub mod sim {
                     probability,
                 })
             }
+
             markets.push(Market {
                 market_type: MarketType::Top4,
-                outcomes,
+                outcomes: slice::from_raw_parts(outcomes.as_ptr(), outcomes.len()),
             });
         }
+
+        slice::from_raw_parts(markets.as_ptr(), markets.len())
     }
 
     // There is no simple intrinsic for movemask as there is in other AVX2 (which is a single instruction intrinsic)
@@ -431,13 +438,18 @@ pub mod sim {
 
         #[test]
         fn actually_runs() {
-            let mut allocator = new_allocator();
-            let mut state = get_state(&mut allocator);
+            let mut state_allocator = new_allocator();
+            let mut markets_allocator = new_allocator();
 
-            let mut markets = Market::new_collection();
-            let first_seed_wins = simulate::<1000>(&mut state, &mut markets);
-            assert!(first_seed_wins > 100 / 10);
-            assert!(markets.len() > 0);
+            let mut state = get_state(&mut state_allocator);
+
+            for _ in 1..=10 {
+                let markets = simulate::<10_000>(&mut state, &mut markets_allocator);
+                assert!(markets.len() == 2);
+
+                state.reset();
+                markets_allocator.reset();
+            }
         }
 
         // TODO memory management tests

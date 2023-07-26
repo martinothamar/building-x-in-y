@@ -17,7 +17,7 @@ build:
 	cargo build --release
 
 test:
-	cargo test
+	cargo test && cargo test --release
 
 dasm:
 	cargo objdump --release -- \
