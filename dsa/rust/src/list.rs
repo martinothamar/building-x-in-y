@@ -141,6 +141,7 @@ impl<T> IndexMut<usize> for List<T> {
     }
 }
 
+#[cfg(test)]
 mod tests {
 
     #[cfg(test)]

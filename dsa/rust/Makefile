@@ -13,6 +13,9 @@ test:
 build:
 	cargo build --release
 
+bench:
+	cargo bench --bench ring_buffer
+
 check:
 	cargo check
 

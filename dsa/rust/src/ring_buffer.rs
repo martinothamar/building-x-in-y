@@ -16,6 +16,7 @@ pub enum RingBufferError {
 type Error = RingBufferError;
 type Result<T> = std::result::Result<T, Error>;
 
+#[repr(align(64))]
 pub struct RingBuffer<T, const N: usize> {
     storage: [MaybeUninit<T>; N],
     read_index: usize,

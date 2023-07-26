@@ -10,7 +10,7 @@ fn do_rb<const N: usize>(rb: &mut RingBuffer<usize, N>) -> usize {
 
     let mut v: usize = 0;
     for _ in 1..N {
-        v = *rb.pop().unwrap();
+        v += *rb.pop().unwrap();
     }
 
     v
@@ -23,7 +23,7 @@ fn do_vd<const N: usize>(vd: &mut VecDeque<usize>) -> usize {
 
     let mut v: usize = 0;
     for _ in 1..N {
-        v = vd.pop_front().unwrap();
+        v += vd.pop_front().unwrap();
     }
 
     v
