@@ -9,6 +9,8 @@ use tokio::{
     io::{AsyncReadExt, BufReader},
 };
 
+/// This program is here to do disassembly analysis and profiling
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     color_eyre::install()?;
