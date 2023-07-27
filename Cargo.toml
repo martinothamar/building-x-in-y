@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "dsa/rust",
+    "http-server/rust",
     "monte-carlo-sim/rust"
 ]
 resolver = "2"
