@@ -1,17 +1,15 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::net;
 use std::sync::Arc;
 use std::{any::Any, cell::RefCell, fmt::Display, io, iter, net::SocketAddr, rc::Rc, thread};
 
 use socket2::{Domain, Socket, Type};
 use thiserror::Error;
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::task::JoinError;
 use tokio_uring::{
-    buf::{
-        fixed::{FixedBuf, FixedBufRegistry},
-        IoBufMut,
-    },
+    buf::{fixed::FixedBufRegistry, IoBufMut},
     net::{TcpListener, TcpStream},
     Runtime,
 };
@@ -20,6 +18,10 @@ use tracing::*;
 mod linux;
 
 const RESPONSE: &'static [u8] = b"HTTP/1.1 200 OK\nContent-Type: text/plain\nContent-Length: 13\n\nHello, world!";
+const SERVICE_UNAVAILABLE: &'static [u8] = b"HTTP/1.1 503 Service Unavailable\n\n";
+
+const MAX_CONNECTIONS_PER_WORKER: usize = 1024 * 4;
+const CONNECTION_BUFFER_SIZE: usize = 1024 * 2;
 
 #[derive(Error, Debug)]
 pub enum ServerError {
@@ -56,7 +58,7 @@ pub fn start() -> Result<(), ServerError> {
             .spawn(move || {
                 let worker = ThreadWorker {
                     name: thread::current().name().unwrap().to_owned(),
-                    is_shutting_down: Rc::new(RefCell::new(false)),
+                    state: Rc::new(RefCell::new(WorkerState::Running)),
                     active_connection_count: Rc::new(RefCell::new(0usize)),
                 };
 
@@ -81,8 +83,25 @@ pub fn start() -> Result<(), ServerError> {
 
 struct ThreadWorker {
     name: String,
-    is_shutting_down: Rc<RefCell<bool>>,
+    state: Rc<RefCell<WorkerState>>,
     active_connection_count: Rc<RefCell<usize>>,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum WorkerState {
+    Running,
+    ShuttingDown,
+}
+
+impl Future for WorkerState {
+    type Output = WorkerState;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match self.to_owned() {
+            WorkerState::Running => std::task::Poll::Pending,
+            WorkerState::ShuttingDown => std::task::Poll::Ready(WorkerState::ShuttingDown),
+        }
+    }
 }
 
 impl Display for ThreadWorker {
@@ -93,18 +112,24 @@ impl Display for ThreadWorker {
 
 impl ThreadWorker {
     fn signal_shutdown(&self) {
-        let mut flag = self.is_shutting_down.borrow_mut();
-        *flag = true;
+        let mut flag = self.state.borrow_mut();
+        *flag = WorkerState::ShuttingDown;
     }
 
     fn is_shutting_down(&self) -> bool {
-        *self.is_shutting_down.borrow()
+        self.get_state() == WorkerState::ShuttingDown
     }
 
-    fn increment_active_connections(&self) {
+    fn get_state(&self) -> WorkerState {
+        *self.state.borrow()
+    }
+
+    fn increment_active_connections(&self) -> usize {
         // TODO - UnsafeCell instead?
         let mut count = self.active_connection_count.borrow_mut();
+        let current = *count;
         *count += 1;
+        current
     }
 
     fn decrement_active_connections(&self) {
@@ -130,34 +155,65 @@ impl ThreadWorker {
 }
 
 async fn recv_os_signal(worker: Rc<ThreadWorker>) -> Result<(), ServerError> {
-    const SIGNAL: SignalKind = SignalKind::terminate();
-    let mut sigterm: tokio::signal::unix::Signal = signal(SIGNAL).map_err(|e| {
-        error!(
-            "[{}] couldn't attach listener for OS signal: {:?}",
-            &worker.name, SIGNAL
-        );
-        e
-    })?;
+    const SIGTERM: SignalKind = SignalKind::terminate();
+    const SIGINT: SignalKind = SignalKind::interrupt();
 
-    sigterm.recv().await;
+    fn attach(s: SignalKind, name: &str) -> io::Result<Signal> {
+        signal(s).map_err(|e| {
+            error!("[{}] couldn't attach listener for OS signal: {:?}", name, s);
+            e
+        })
+    }
+
+    let mut sigterm = attach(SIGTERM, &worker.name)?;
+    let mut sigint = attach(SIGINT, &worker.name)?;
+
+    let s = tokio::select! {
+        _ = sigterm.recv() => SIGTERM,
+        _ = sigint.recv() => SIGINT,
+    };
+
+    info!("[{}] received OS signal: {:?}, shutting down..", &worker.name, s);
     worker.signal_shutdown();
     Ok(())
 }
 
 async fn listen_for_clients(worker: Rc<ThreadWorker>, listener: TcpListener, registry: FixedBufRegistry<Vec<u8>>) {
     while !worker.is_shutting_down() {
-        let client_result = listener.accept().await;
+
+        info!("listening...");
+        let client_result = tokio::select! {
+            client_result = listener.accept() => Some(client_result),
+            _state = worker.get_state() => None,
+        };
+        info!("got event...");
+
+        let Some(client_result) = client_result else {
+            info!("[{}] exiting listener loop", &worker.name);
+            break;
+        };
 
         match client_result {
             Err(e) => error!("[{}] failed to accept client: {}", &worker.name, e),
             Ok((stream, addr)) => {
-                worker.increment_active_connections();
-                let worker = Rc::clone(&worker);
-                let registry = registry.clone();
-                tokio_uring::spawn(async move {
-                    handle_client(Rc::clone(&worker), stream, addr, registry).await;
+                let current = worker.increment_active_connections();
+                if current == MAX_CONNECTIONS_PER_WORKER - 1 {
+                    let (res, _) = stream.write_all(SERVICE_UNAVAILABLE).await;
+                    debug!("[{}] request denied, backpressure applied", &worker.name);
                     worker.decrement_active_connections();
-                });
+                    let _ = res.unwrap_or_else(|e| {
+                        error!("[{}] failed to apply backpressure to client: {}", &worker.name, e);
+                        ()
+                    });
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                } else {
+                    let worker = Rc::clone(&worker);
+                    let registry = registry.clone();
+                    tokio_uring::spawn(async move {
+                        handle_client(Rc::clone(&worker), current, stream, addr, registry).await;
+                        worker.decrement_active_connections();
+                    });
+                }
             }
         };
     }
@@ -185,7 +241,8 @@ fn run_thread(worker: ThreadWorker) -> Result<(), ServerError> {
             let os_signal_listener = tokio_uring::spawn(recv_os_signal(Rc::clone(&worker)));
 
             // TODO align the buffers
-            let registry = FixedBufRegistry::new(iter::repeat(vec![0; 4096]).take(64));
+            let connection_buffers = iter::repeat(vec![0; CONNECTION_BUFFER_SIZE]).take(MAX_CONNECTIONS_PER_WORKER);
+            let registry = FixedBufRegistry::new(connection_buffers);
             registry.register().map_err(|e| {
                 error!("[{}] failed to register fixed buffers: {}", &worker.name, &e);
                 e
@@ -216,46 +273,43 @@ fn run_thread(worker: ThreadWorker) -> Result<(), ServerError> {
 
 async fn handle_client<T: IoBufMut>(
     worker: Rc<ThreadWorker>,
+    connection_index: usize,
     client_stream: TcpStream,
-    client_addr: SocketAddr,
+    _client_addr: SocketAddr,
     registry: FixedBufRegistry<T>,
 ) {
-    let mut buf_n = 0;
-    let mut buf: Option<FixedBuf>;
-    loop {
-        if buf_n == 64 {
-            let _ = client_stream.shutdown(std::net::Shutdown::Write);
-            info!("[{}] client dropped, no more buffers: {}", &worker.name, &client_addr);
-        }
+    let mut buffer = registry
+        .check_out(connection_index)
+        .expect("Should be available since we keep track of active connections");
 
-        buf_n += 1;
-        buf = registry.check_out(buf_n - 1);
-
-        if !buf.is_none() {
-            break;
-        }
-    }
-
-    let mut buf = buf.unwrap();
     let mut n = 0;
     loop {
-        let (result, buf_read) = client_stream.read_fixed(buf).await;
-        buf = {
-            let read = result.unwrap();
+        let (result, read_buffer) = client_stream.read_fixed(buffer).await;
+        buffer = {
+            let read = result.unwrap_or_else(|e| {
+                warn!("[{}] error reading response: {}", &worker.name, e);
+                0
+            });
             if read == 0 {
                 break;
             }
 
             n += read;
 
-            if read >= 4 && buf_read[n - 4..n].eq(b"\r\n\r\n") {
+            if read >= 4 && read_buffer[n - 4..n].eq(b"\r\n\r\n") {
                 let (res, _) = client_stream.write_all(RESPONSE).await;
-                debug!("[{}] request received:\n{}", &worker.name, std::str::from_utf8(&buf_read[0..n]).unwrap());
-                let _ = res.unwrap();
+                debug!(
+                    "[{}] request received:\n{}",
+                    &worker.name,
+                    std::str::from_utf8(&read_buffer[0..n]).unwrap_or("error reading body")
+                );
+                res.unwrap_or_else(|e| {
+                    error!("[{}] error writing response: {}", &worker.name, e);
+                });
                 n = 0;
             }
 
-            buf_read
+            read_buffer
         };
     }
     let _ = client_stream.shutdown(std::net::Shutdown::Write);
