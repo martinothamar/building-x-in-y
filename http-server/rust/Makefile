@@ -1,5 +1,5 @@
-bindir := ../../target/release
-outbin := ${bindir}/httpsrv
+bindir := ../../target/release/examples
+outbin := ${bindir}/server
 
 all: run
 
@@ -7,7 +7,7 @@ run: build
 	$(outbin)
 
 build:
-	cargo build --release
+	cargo build --release --example server
 
 test:
 	cargo test && cargo test --release

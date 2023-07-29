@@ -1,7 +1,10 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::future::Future;
 use std::net;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Poll, Waker, Context};
 use std::{any::Any, cell::RefCell, fmt::Display, io, iter, net::SocketAddr, rc::Rc, thread};
 
 use socket2::{Domain, Socket, Type};
@@ -58,7 +61,7 @@ pub fn start() -> Result<(), ServerError> {
             .spawn(move || {
                 let worker = ThreadWorker {
                     name: thread::current().name().unwrap().to_owned(),
-                    state: Rc::new(RefCell::new(WorkerState::Running)),
+                    state: Rc::new(RefCell::new(WorkerState::new())),
                     active_connection_count: Rc::new(RefCell::new(0usize)),
                 };
 
@@ -87,19 +90,53 @@ struct ThreadWorker {
     active_connection_count: Rc<RefCell<usize>>,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
-enum WorkerState {
+#[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+#[allow(dead_code)]
+enum WorkerStateValue {
+    Starting,
     Running,
     ShuttingDown,
+    ShutDown,
 }
 
-impl Future for WorkerState {
-    type Output = WorkerState;
+struct WorkerState {
+    current: WorkerStateValue,
+}
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        match self.to_owned() {
-            WorkerState::Running => std::task::Poll::Pending,
-            WorkerState::ShuttingDown => std::task::Poll::Ready(WorkerState::ShuttingDown),
+impl WorkerState {
+    fn new() -> Self{
+        Self { current: WorkerStateValue::Starting }
+    }
+
+    fn transition_to(&mut self, state: WorkerStateValue) {
+        if state < self.current {
+            unreachable!("Should never try tro transition backwards");
+        }
+        self.current = state;
+    }
+}
+
+struct WaitForShutdown {
+    state: Rc<RefCell<WorkerState>>,
+    waker: Option<Waker>,
+}
+
+impl Future for WaitForShutdown {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let ordering = {
+            let state = self.state.borrow();
+            state.current.cmp(&WorkerStateValue::ShuttingDown)
+        };
+        info!("Polling WaitForShutdown");
+        match ordering {
+            Ordering::Less => {
+                self.waker = Some(cx.waker().clone());
+                Poll::Pending
+            },
+            Ordering::Equal => Poll::Ready(()),
+            Ordering::Greater => Poll::Ready(()),
         }
     }
 }
@@ -113,15 +150,25 @@ impl Display for ThreadWorker {
 impl ThreadWorker {
     fn signal_shutdown(&self) {
         let mut flag = self.state.borrow_mut();
-        *flag = WorkerState::ShuttingDown;
+        if flag.current < WorkerStateValue::ShuttingDown {
+            flag.transition_to(WorkerStateValue::ShuttingDown);
+        }
     }
 
     fn is_shutting_down(&self) -> bool {
-        self.get_state() == WorkerState::ShuttingDown
+        self.get_state() == WorkerStateValue::ShuttingDown
     }
 
-    fn get_state(&self) -> WorkerState {
-        *self.state.borrow()
+    fn get_state(&self) -> WorkerStateValue {
+        self.state.borrow().current
+    }
+
+    async fn wait_for_shutdown(&self) {
+        let value = WaitForShutdown {
+            state: Rc::clone(&self.state),
+            waker: None,
+        };
+        value.await;
     }
 
     fn increment_active_connections(&self) -> usize {
@@ -183,8 +230,8 @@ async fn listen_for_clients(worker: Rc<ThreadWorker>, listener: TcpListener, reg
 
         info!("listening...");
         let client_result = tokio::select! {
+            _ = worker.wait_for_shutdown() => None,
             client_result = listener.accept() => Some(client_result),
-            _state = worker.get_state() => None,
         };
         info!("got event...");
 
