@@ -1,10 +1,10 @@
-use std::error::Error;
+use anyhow::Result;
 
 use tracing_subscriber;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    httpsrv::start()?;
+    httpsrv::server2::start()?;
     Ok(())
 }

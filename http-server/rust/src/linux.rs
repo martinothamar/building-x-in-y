@@ -3,7 +3,7 @@ use std::{
     fs::File,
     io::{BufReader, Read},
     mem::{size_of, MaybeUninit},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 pub struct CpuInfo {
@@ -99,4 +99,17 @@ pub fn pin_thread(processor: usize) {
         let ret = libc::pthread_setaffinity_np(thread, size_of::<libc::cpu_set_t>(), cpu_set.as_ptr());
         assert!(ret == 0, "thread pinning failed: {ret}");
     }
+}
+
+pub fn thread_per_core() -> (u16, Arc<Vec<usize>>) {
+    let cpu_info = get_cpu_info();
+    let core_count = get_physical_core_count() / 2;
+    let mut processors_to_use = HashMap::<usize, usize>::with_capacity(core_count as usize);
+    cpu_info
+        .processors
+        .iter()
+        .for_each(|p| _ = processors_to_use.insert(p.core_id, p.processor));
+
+    let processors_to_use = Arc::new(processors_to_use.values().cloned().collect::<Vec<_>>());
+    (core_count, processors_to_use)
 }
