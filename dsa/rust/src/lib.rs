@@ -5,5 +5,5 @@
 #![feature(new_uninit)]
 
 pub(crate) mod internal;
-pub mod ring_buffer;
 pub mod list;
+pub mod ring_buffer;

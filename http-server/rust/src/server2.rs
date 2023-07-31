@@ -1,32 +1,20 @@
-use std::any::Any;
 use std::io;
-use std::mem::size_of;
-use std::mem::MaybeUninit;
 use std::net::SocketAddr;
 use std::net::TcpListener;
 use std::os::fd::AsRawFd;
-use std::os::fd::FromRawFd;
-use std::os::fd::RawFd;
 use std::sync::Arc;
 use std::thread;
-use std::thread::ThreadId;
 
 use anyhow::anyhow;
 use anyhow::Context;
-use anyhow::Error;
 use anyhow::Result;
-use io_uring::cqueue;
 use io_uring::opcode;
-use io_uring::squeue;
 use io_uring::types;
-use io_uring::types::Fd;
 use io_uring::IoUring;
-use io_uring::Submitter;
 use slab::Slab;
 use socket2::Domain;
 use socket2::Socket;
 use socket2::Type;
-use tokio::runtime;
 use tracing::error;
 use tracing::info;
 
@@ -36,7 +24,7 @@ use crate::linux;
 use crate::resp;
 
 struct ThreadWorker {
-    id: u64,
+    _id: u64,
     processor: u16,
     name: String,
 }
@@ -55,7 +43,11 @@ macro_rules! log_error {
 
 impl ThreadWorker {
     fn new(id: u64, processor: u16, name: String) -> Self {
-        Self { id, processor, name }
+        Self {
+            _id: id,
+            processor,
+            name,
+        }
     }
 }
 
@@ -230,12 +222,13 @@ fn run_thread(worker: ThreadWorker) -> Result<()> {
                     }
                 }
                 Operation::Write(_fd) => {
-                    let len = cqe.result();
+                    let _len = cqe.result();
                     // log_info!(worker, "wrote {}", len);
                 }
             }
         }
     }
 
+    #[allow(unreachable_code)]
     Ok(())
 }

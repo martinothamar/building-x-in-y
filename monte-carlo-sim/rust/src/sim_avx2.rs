@@ -2,7 +2,7 @@ use bumpalo::Bump;
 use itertools::Itertools;
 use mem::size_of;
 use std::arch::x86_64::*;
-use std::mem::{self, transmute};
+use std::mem;
 use std::ops::Neg;
 use std::ptr::NonNull;
 use std::{alloc, slice};
@@ -214,13 +214,13 @@ pub fn simulate<'a, const S: usize>(state: &mut State, markets_allocator: &'a mu
             // results[0] won the season
             let results = table
                 .iter()
-                .take(state.number_of_teams as usize)
+                .take(state.number_of_teams)
                 .map(|v| *v as i8)
                 .enumerate()
                 .map(|(i, v)| (i as u8, v))
                 .sorted_unstable_by_key(|a| -a.1);
 
-            std::ptr::copy(results.as_ref().as_ptr(), sorted_table, state.number_of_teams as usize);
+            std::ptr::copy(results.as_ref().as_ptr(), sorted_table, state.number_of_teams);
 
             for p in 0..state.number_of_teams {
                 // i is the index in the teams input slice
@@ -261,10 +261,10 @@ unsafe fn tick(rng: &mut RngImpl, home_poisson: *mut f64, away_poisson: *mut f64
             let exclude_mask = if i >= j && i < j + LANES {
                 let pos = j + LANES - i;
                 match pos - 1 {
-                    3 => _mm256_setr_pd(transmute::<_, f64>(0xFFFFFFFFFFFFFFFFu64), 0f64, 0f64, 0f64),
-                    2 => _mm256_setr_pd(0f64, transmute::<_, f64>(0xFFFFFFFFFFFFFFFFu64), 0f64, 0f64),
-                    1 => _mm256_setr_pd(0f64, 0f64, transmute::<_, f64>(0xFFFFFFFFFFFFFFFFu64), 0f64),
-                    0 => _mm256_setr_pd(0f64, 0f64, 0f64, transmute::<_, f64>(0xFFFFFFFFFFFFFFFFu64)),
+                    3 => _mm256_setr_pd(f64::from_bits(0xFFFFFFFFFFFFFFFFu64), 0f64, 0f64, 0f64),
+                    2 => _mm256_setr_pd(0f64, f64::from_bits(0xFFFFFFFFFFFFFFFFu64), 0f64, 0f64),
+                    1 => _mm256_setr_pd(0f64, 0f64, f64::from_bits(0xFFFFFFFFFFFFFFFFu64), 0f64),
+                    0 => _mm256_setr_pd(0f64, 0f64, 0f64, f64::from_bits(0xFFFFFFFFFFFFFFFFu64)),
                     _ => unreachable!(),
                 }
             } else {
@@ -323,7 +323,7 @@ unsafe fn mm256_reduce_add_pd(v: __m256d) -> f64 {
     vlow = _mm_add_pd(vlow, vhigh); // reduce down to 128
 
     let high64 = _mm_unpackhi_pd(vlow, vlow);
-    return _mm_cvtsd_f64(_mm_add_sd(vlow, high64)); // reduce to scalar
+    _mm_cvtsd_f64(_mm_add_sd(vlow, high64)) // reduce to scalar
 }
 
 #[inline(always)]
@@ -382,6 +382,7 @@ unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: 
         let outcomes: Vec<Outcome, &'a Bump> = OutcomeVec::with_capacity_in(state.number_of_teams, allocator);
         let mut outcomes = std::mem::ManuallyDrop::new(outcomes);
         for i in 0..state.number_of_teams {
+            #[allow(clippy::identity_op)]
             let idx = i * state.number_of_teams + 0; // 0 for the winner position
             let number_of_wins = *table_position_history.add(idx);
             if number_of_wins == 0 {
@@ -413,6 +414,7 @@ unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: 
         let mut outcomes = std::mem::ManuallyDrop::new(outcomes);
         for i in 0..state.number_of_teams {
             let base_idx = i * state.number_of_teams; // 0 for the winner position
+            #[allow(clippy::identity_op)]
             let top_4_state = [
                 *table_position_history.add(base_idx + 0),
                 *table_position_history.add(base_idx + 1),
@@ -502,12 +504,12 @@ mod tests {
 
         unsafe {
             let slice = slice::from_raw_parts(markets1.markets.as_ptr(), markets1.markets.len());
-            assert!(slice.len() == 0);
+            assert!(slice.is_empty());
             assert!(markets1.markets.capacity() == 4);
         }
         unsafe {
             let slice = slice::from_raw_parts(markets2.markets.as_ptr(), markets2.markets.len());
-            assert!(slice.len() == 0);
+            assert!(slice.is_empty());
             assert!(markets2.markets.capacity() == 4);
         }
     }

@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
 
     let mut elapsed = [Duration::ZERO; ITERATIONS];
 
-    for i in 0..ITERATIONS {
+    (0..ITERATIONS).for_each(|i| {
         let start = Instant::now();
         sim::simulate::<100_000>(&mut state, &mut markets_allocator);
         let stop = Instant::now();
@@ -40,11 +40,11 @@ async fn main() -> Result<()> {
 
         state.reset();
         markets_allocator.reset();
-    }
+    });
 
-    for i in 0..ITERATIONS {
+    (0..ITERATIONS).for_each(|i| {
         println!("Elapsed: {:.3}ms", elapsed[i].as_secs_f64() * 1000.0);
-    }
+    });
 
     Ok(())
 }

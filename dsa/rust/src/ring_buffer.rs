@@ -23,6 +23,7 @@ pub struct RingBuffer<T, const N: usize> {
     write_index: usize,
 }
 
+#[allow(clippy::let_unit_value)]
 impl<T, const N: usize> RingBuffer<T, N>
 where
     [(); mem::size_of::<T>()]:,
@@ -163,7 +164,7 @@ where
     pub fn len(&self) -> usize {
         let wrap_offset = 2 * N * (self.write_index < self.read_index) as usize;
         let adjusted_write_index = self.write_index + wrap_offset;
-        return adjusted_write_index - self.read_index;
+        adjusted_write_index - self.read_index
     }
 
     /// Returns a boolean value indicating wether or not the `RingBuffer<T, N>` is empty or not
@@ -180,12 +181,12 @@ where
 
     #[inline(always)]
     fn mask(index: usize) -> usize {
-        return index & (N - 1);
+        index & (N - 1)
     }
 
     #[inline(always)]
     fn mask2(index: usize) -> usize {
-        return index & ((2 * N) - 1);
+        index & ((2 * N) - 1)
     }
 }
 

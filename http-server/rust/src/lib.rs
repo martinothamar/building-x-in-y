@@ -1,6 +1,4 @@
-
-pub mod server1;
-pub mod server2;
+mod buf_ring;
 mod linux;
 mod resp;
-mod buf_ring;
+pub mod server2;

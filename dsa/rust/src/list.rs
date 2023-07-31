@@ -20,6 +20,12 @@ pub struct List<T> {
     cap: usize,
 }
 
+impl<T> Default for List<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> List<T> {
     pub fn new() -> Self {
         Self {
@@ -31,11 +37,7 @@ impl<T> List<T> {
 
     pub fn with_capacity(cap: usize) -> Result<Self> {
         let ptr = Self::alloc(cap)?;
-        Ok(Self {
-            ptr,
-            len: 0,
-            cap: cap,
-        })
+        Ok(Self { ptr, len: 0, cap })
     }
 
     pub fn add(&mut self, value: T) -> Result<()> {
@@ -65,6 +67,10 @@ impl<T> List<T> {
 
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     pub fn cap(&self) -> usize {
@@ -110,9 +116,7 @@ impl<T> Drop for List<T> {
 
         let ptr = self.ptr.as_ptr();
 
-        let layout = Layout::array::<T>(self.cap)
-            .map_err(|_| Error::Allocation)
-            .unwrap();
+        let layout = Layout::array::<T>(self.cap).map_err(|_| Error::Allocation).unwrap();
         unsafe { std::alloc::dealloc(ptr as *mut u8, layout) };
     }
 }
@@ -173,7 +177,10 @@ mod tests {
             assert_eq!(0, list.len);
             assert_eq!(8, list.cap);
             let end_stats = dhat::HeapStats::get();
-            dhat::assert_eq!(std::mem::size_of::<usize>() * 8, end_stats.curr_bytes - start_stats.curr_bytes);
+            dhat::assert_eq!(
+                std::mem::size_of::<usize>() * 8,
+                end_stats.curr_bytes - start_stats.curr_bytes
+            );
         }
         let stats = dhat::HeapStats::get();
         dhat::assert_eq!(start_stats.curr_bytes, stats.curr_bytes);
@@ -185,7 +192,6 @@ mod tests {
         list.add(1).unwrap();
         assert_eq!(1, list.len);
         assert_eq!(4, list.cap);
-        assert_eq!(1, *&list[0]);
         assert_eq!(1, list[0]);
     }
 
@@ -209,7 +215,6 @@ mod tests {
 
         assert_eq!(1, list.len);
         assert_eq!(4, list.cap);
-        assert_eq!(2, *&list[0]);
         assert_eq!(2, list[0]);
     }
 }

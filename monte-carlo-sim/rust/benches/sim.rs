@@ -40,7 +40,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 // hopefully then the iterations are within a single OS scheduler timeslice
                 let markets = sim::simulate::<1_000>(&mut state, &mut markets_allocator);
                 let market = &markets[0];
-                return market.outcomes[0].probability;
+                market.outcomes[0].probability
             },
             BatchSize::PerIteration,
         )

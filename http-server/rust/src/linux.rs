@@ -1,3 +1,5 @@
+#![allow(clippy::manual_non_exhaustive)]
+
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -44,7 +46,7 @@ pub fn get_cpu_info() -> &'static CpuInfo {
 
             let line = line.trim();
             if line.starts_with("processor") {
-                if current_processor.len() > 0 {
+                if !current_processor.is_empty() {
                     processors.push(Processor {
                         processor: current_processor.get("processor").unwrap().parse().unwrap(),
                         model_name: current_processor.get("model name").unwrap().to_string(),

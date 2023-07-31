@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use io_uring::types;
 use io_uring::types::BufRingEntry;
 use io_uring::{cqueue, squeue, IoUring};

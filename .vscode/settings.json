@@ -19,5 +19,7 @@
         "unistd.h": "c",
         "string.h": "c",
         "random": "c"
-    }
+    },
+    "rust-analyzer.checkOnSave": true,
+    "rust-analyzer.check.command": "clippy",
 }
