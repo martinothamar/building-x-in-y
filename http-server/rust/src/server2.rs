@@ -1,20 +1,30 @@
+use std::cell::RefCell;
 use std::io;
 use std::net::SocketAddr;
 use std::net::TcpListener;
 use std::os::fd::AsRawFd;
+use std::os::fd::RawFd;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Result;
+use io_uring::cqueue;
 use io_uring::opcode;
+use io_uring::squeue;
+use io_uring::squeue::PushError;
 use io_uring::types;
 use io_uring::IoUring;
 use slab::Slab;
 use socket2::Domain;
 use socket2::Socket;
 use socket2::Type;
+use tokio::io::unix::AsyncFd;
+use tokio::io::Interest;
+use tokio::runtime;
 use tracing::error;
 use tracing::info;
 
@@ -31,14 +41,14 @@ struct ThreadWorker {
 
 #[macro_export]
 macro_rules! log_info {
-    ($w:ident, $m:literal) => (info!(concat!("[{}] ", $m), $w.name));
-    ($w:ident, $m:literal, $($arg:expr),+) => (info!(concat!("[{}] ", $m), $w.name, $($arg),+));
+    ($w:ident, $m:literal) => (info!(concat!("[{}] ", $m), $w.borrow().name));
+    ($w:ident, $m:literal, $($arg:expr),+) => (info!(concat!("[{}] ", $m), $w.borrow().name, $($arg),+));
 }
 
 #[macro_export]
 macro_rules! log_error {
-    ($w:ident, $m:literal) => (error!(concat!("[{}] ", $m), $w.name));
-    ($w:ident, $m:literal, $($arg:expr),+) => (error!(concat!("[{}] ", $m), $w.name, $($arg),+));
+    ($w:ident, $m:literal) => (error!(concat!("[{}] ", $m), $w.borrow().name));
+    ($w:ident, $m:literal, $($arg:expr),+) => (error!(concat!("[{}] ", $m), $w.borrow().name, $($arg),+));
 }
 
 impl ThreadWorker {
@@ -66,7 +76,7 @@ pub fn start() -> Result<()> {
                 let name = thread.name().unwrap().to_owned();
                 let id = unsafe { libc::pthread_self() };
                 let processor = processors_to_use[ti as usize];
-                let worker = ThreadWorker::new(id, processor as u16, name);
+                let worker = Rc::new(RefCell::new(ThreadWorker::new(id, processor as u16, name)));
 
                 log_info!(worker, "thread starting");
 
@@ -124,55 +134,132 @@ fn register_buffer_rings(worker: &ThreadWorker, ring: &mut IoUring) -> Result<Fi
     Ok(buf_ring)
 }
 
-fn run_thread(worker: ThreadWorker) -> Result<()> {
-    // let rt = runtime::Builder::new_current_thread()
-    //     .build()
-    //     .context("failed to create async executor")?;
-    // let local = tokio::task::LocalSet::new();
-    // let _guard = rt.enter();
+fn run_thread(worker: Rc<RefCell<ThreadWorker>>) -> Result<()> {
+    let rt = runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .context("failed to create async executor")?;
+    let local = tokio::task::LocalSet::new();
 
-    let mut ring = IoUring::builder()
+    let ring = IoUring::builder()
         .setup_coop_taskrun()
         .setup_cqsize(256)
+        // .setup_sqpoll(100)
+        // .setup_sqpoll_cpu((worker.processor + 1) as u32)
         .build(128)
         .context("failed to initialize IO uring")?;
+
+    local.spawn_local(event_loop(worker, ring));
+
+    rt.block_on(local);
+
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+#[derive(Clone)]
+struct RingHandle {
+    inner: Rc<RefCell<IoUring>>,
+}
+
+impl RingHandle {
+    #[inline]
+    fn register_files(&self, fds: &[RawFd]) -> io::Result<()> {
+        self.inner.borrow().submitter().register_files(fds)
+    }
+
+    #[inline]
+    fn push_sq(&self, entry: &squeue::Entry) -> Result<(), PushError> {
+        unsafe { self.inner.borrow_mut().submission().push(entry) }
+    }
+
+    #[inline]
+    fn sync_sq(&self) {
+        self.inner.borrow_mut().submission().sync();
+    }
+
+    #[inline]
+    fn sync_cq(&self) {
+        self.inner.borrow_mut().completion().sync();
+    }
+
+    #[inline]
+    fn submit(&self) -> io::Result<usize> {
+        self.inner.borrow().submitter().submit()
+    }
+}
+
+impl Iterator for &RingHandle {
+    type Item = cqueue::Entry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.borrow_mut().completion().next()
+    }
+}
+
+impl AsRawFd for RingHandle {
+    fn as_raw_fd(&self) -> std::os::fd::RawFd {
+        self.inner.borrow().as_raw_fd()
+    }
+}
+
+async fn event_loop(worker: Rc<RefCell<ThreadWorker>>, mut ring: IoUring) -> Result<()> {
+    let buf_ring = register_buffer_rings(&worker.borrow(), &mut ring)?;
+    let bg_id = worker.borrow().processor;
+
+    let mut operations: Slab<Operation> = Slab::with_capacity(64);
 
     let listener = create_tcp_listener().context("failed to create TCP listener")?;
     let listener_fd = types::Fd(listener.as_raw_fd());
 
-    ring.submitter().register_files(&[listener.as_raw_fd()])?;
+    let ring = RingHandle {
+        inner: Rc::new(RefCell::new(ring)),
+    };
 
-    let accept_op = opcode::AcceptMulti::new(listener_fd);
+    let ring_fd = AsyncFd::with_interest(ring.clone(), Interest::READABLE)?;
 
-    let mut operations: Slab<Operation> = Slab::with_capacity(64);
+    ring.register_files(&[listener.as_raw_fd()])?;
 
-    let buf_ring = register_buffer_rings(&worker, &mut ring)?;
-    let bg_id = worker.processor;
+    {
+        let accept_op = opcode::AcceptMulti::new(listener_fd);
+        let listener_entry = accept_op.build().user_data(operations.insert(Operation::Accept) as _);
 
-    let (submitter, mut sq, mut cq) = ring.split();
-
-    let listener_entry = accept_op.build().user_data(operations.insert(Operation::Accept) as _);
-    unsafe {
-        sq.push(&listener_entry)
+        ring.push_sq(&listener_entry)
             .context("failed to enqueue socket accept operation to IO uring")?;
-        sq.sync();
+        ring.sync_sq();
+        ring.submit()?;
     }
 
-    submitter
-        .submit_and_wait(1)
-        .context("failed to submit enqueued operations to IO uring")?;
+    let active_connections = Rc::new(RefCell::new(0usize));
+    let inc_active_connections = || *active_connections.borrow_mut() += 1;
+    let dec_active_connections = || *active_connections.borrow_mut() -= 1;
+
+    {
+        let worker = Rc::clone(&worker);
+        let active_connections = Rc::clone(&active_connections);
+        tokio::task::spawn_local(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                log_info!(worker, "active connections: {}", *active_connections.borrow());
+            }
+        });
+    };
 
     loop {
-        if cq.is_empty() {
-            submitter.submit_and_wait(1).context("failed to wait for cqe's")?;
-            cq.sync();
-        }
+        let mut guard = ring_fd.readable().await?;
 
-        for cqe in &mut cq {
+        // log_info!(worker, "reading cqe's");
+
+        let ring = guard.get_inner();
+        ring.sync_cq();
+        for cqe in ring {
             let ret = cqe.result();
 
             let op_index = cqe.user_data() as usize;
             let op = &operations[op_index];
+
+            log_info!(worker, "cqe received: op={:?}, ret={}", op, ret);
 
             if ret < 0 {
                 let e = io::Error::from_raw_os_error(-ret);
@@ -188,14 +275,15 @@ fn run_thread(worker: ThreadWorker) -> Result<()> {
                     let read_op = opcode::RecvMulti::new(types::Fd(fd), bg_id)
                         .build()
                         .user_data(operations.insert(Operation::Read(fd)) as _);
-                    unsafe { sq.push(&read_op)? };
-                    sq.sync();
+                    ring.push_sq(&read_op)?;
+                    inc_active_connections();
                 }
                 Operation::Read(fd) => {
                     if ret == 0 {
                         // EOF
                         // log_info!(worker, "EOF for request");
                         operations.remove(op_index);
+                        dec_active_connections();
                     } else {
                         let len = ret as usize;
                         let result = ret as usize;
@@ -214,19 +302,22 @@ fn run_thread(worker: ThreadWorker) -> Result<()> {
                             )
                             .build()
                             .user_data(operations.insert(Operation::Write(*fd)) as _);
-                            unsafe { sq.push(&write_op)? }
-                            sq.sync();
+                            ring.push_sq(&write_op)?;
                         } else {
                             log_error!(worker, "got response, but couldn't reach end of request");
                         }
                     }
                 }
                 Operation::Write(_fd) => {
-                    let _len = cqe.result();
                     // log_info!(worker, "wrote {}", len);
                 }
             }
         }
+
+        ring.sync_sq();
+        ring.submit()?;
+
+        guard.clear_ready();
     }
 
     #[allow(unreachable_code)]

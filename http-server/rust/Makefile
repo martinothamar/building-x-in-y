@@ -11,3 +11,6 @@ build:
 
 test:
 	cargo test && cargo test --release
+
+flamegraph:
+	CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --example server

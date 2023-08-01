@@ -1,7 +1,7 @@
 #![allow(clippy::manual_non_exhaustive)]
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, BTreeMap},
     fs::File,
     io::{BufReader, Read},
     mem::{size_of, MaybeUninit},
@@ -10,9 +10,11 @@ use std::{
 
 pub struct CpuInfo {
     pub processors: Vec<Processor>,
+    pub cores: BTreeMap<usize, Vec<Processor>>,
     _private: (),
 }
 
+#[derive(Clone)]
 pub struct Processor {
     pub processor: usize,
     pub model_name: String,
@@ -35,7 +37,8 @@ pub fn get_cpu_info() -> &'static CpuInfo {
         let mut buffer = String::with_capacity(1024 * 32);
         let _size = reader.read_to_string(&mut buffer).unwrap();
 
-        let mut processors: Vec<Processor> = Vec::with_capacity(4);
+        let mut processors: Vec<Processor> = Vec::with_capacity(8);
+        let mut cores: BTreeMap<usize, Vec<Processor>> = BTreeMap::new();
 
         let mut current_processor = HashMap::<&str, &str>::new();
 
@@ -66,8 +69,14 @@ pub fn get_cpu_info() -> &'static CpuInfo {
             _ = current_processor.insert(k, v);
         }
 
+        for processor in processors.iter() {
+            let core = cores.entry(processor.core_id).or_insert_with(Vec::new);
+            core.push(processor.clone());
+        }
+
         CpuInfo {
             processors,
+            cores,
             _private: (),
         }
     })
@@ -106,12 +115,7 @@ pub fn pin_thread(processor: usize) {
 pub fn thread_per_core() -> (u16, Arc<Vec<usize>>) {
     let cpu_info = get_cpu_info();
     let core_count = get_physical_core_count() / 2;
-    let mut processors_to_use = HashMap::<usize, usize>::with_capacity(core_count as usize);
-    cpu_info
-        .processors
-        .iter()
-        .for_each(|p| _ = processors_to_use.insert(p.core_id, p.processor));
+    let processors_to_use = cpu_info.cores.iter().map(|c| c.1[0].processor).collect::<Vec<_>>();
 
-    let processors_to_use = Arc::new(processors_to_use.values().cloned().collect::<Vec<_>>());
-    (core_count, processors_to_use)
+    (core_count, Arc::new(processors_to_use))
 }
