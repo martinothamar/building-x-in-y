@@ -259,7 +259,7 @@ async fn event_loop(worker: Rc<RefCell<ThreadWorker>>, mut ring: IoUring) -> Res
             let op_index = cqe.user_data() as usize;
             let op = &operations[op_index];
 
-            log_info!(worker, "cqe received: op={:?}, ret={}", op, ret);
+            // log_info!(worker, "cqe received: op={:?}, ret={}", op, ret);
 
             if ret < 0 {
                 let e = io::Error::from_raw_os_error(-ret);
@@ -291,8 +291,6 @@ async fn event_loop(worker: Rc<RefCell<ThreadWorker>>, mut ring: IoUring) -> Res
                         let flags = cqe.flags();
                         let buf = buf_ring.rc.get_buf(buf_ring.clone(), result as u32, flags)?;
                         let buf = buf.as_slice();
-
-                        let _str = std::str::from_utf8(buf)?;
 
                         if len >= 4 && buf[len - 4..len].eq(b"\r\n\r\n") {
                             let write_op = opcode::SendZc::new(
