@@ -1,29 +1,29 @@
 #![allow(clippy::manual_non_exhaustive)]
 
 use std::{
-    collections::{HashMap, HashSet, BTreeMap},
+    collections::{BTreeMap, HashMap},
     fs::File,
     io::{BufReader, Read},
     mem::{size_of, MaybeUninit},
-    sync::{Arc, OnceLock},
+    sync::OnceLock,
 };
 
 pub struct CpuInfo {
     pub processors: Vec<Processor>,
-    pub cores: BTreeMap<usize, Vec<Processor>>,
+    pub cores: BTreeMap<u16, Vec<Processor>>,
     _private: (),
 }
 
 #[derive(Clone)]
 pub struct Processor {
-    pub processor: usize,
+    pub processor: u16,
     pub model_name: String,
     pub cache_size: String,
-    pub physical_id: usize,
-    pub core_id: usize,
-    pub cpu_cores: usize,
-    pub apicid: usize,
-    pub cache_alignment: usize,
+    pub physical_id: u16,
+    pub core_id: u16,
+    pub cpu_cores: u16,
+    pub apicid: u16,
+    pub cache_alignment: u16,
     _private: (),
 }
 
@@ -38,7 +38,7 @@ pub fn get_cpu_info() -> &'static CpuInfo {
         let _size = reader.read_to_string(&mut buffer).unwrap();
 
         let mut processors: Vec<Processor> = Vec::with_capacity(8);
-        let mut cores: BTreeMap<usize, Vec<Processor>> = BTreeMap::new();
+        let mut cores: BTreeMap<u16, Vec<Processor>> = BTreeMap::new();
 
         let mut current_processor = HashMap::<&str, &str>::new();
 
@@ -82,18 +82,7 @@ pub fn get_cpu_info() -> &'static CpuInfo {
     })
 }
 
-pub fn get_physical_core_count() -> u16 {
-    let cpu_info = get_cpu_info();
-
-    cpu_info
-        .processors
-        .iter()
-        .map(|v| v.core_id)
-        .collect::<HashSet<_>>()
-        .len() as u16
-}
-
-pub fn pin_thread(processor: usize) {
+pub fn pin_thread(processor: u16) {
     let cpu_info = get_cpu_info();
     assert!(
         cpu_info.processors.iter().any(|p| p.processor == processor),
@@ -105,17 +94,61 @@ pub fn pin_thread(processor: usize) {
 
         let mut cpu_set: MaybeUninit<libc::cpu_set_t> = MaybeUninit::uninit();
         libc::CPU_ZERO(cpu_set.assume_init_mut());
-        libc::CPU_SET(processor, cpu_set.assume_init_mut());
+        libc::CPU_SET(processor as usize, cpu_set.assume_init_mut());
 
         let ret = libc::pthread_setaffinity_np(thread, size_of::<libc::cpu_set_t>(), cpu_set.as_ptr());
         assert!(ret == 0, "thread pinning failed: {ret}");
     }
 }
 
-pub fn thread_per_core() -> (u16, Arc<Vec<usize>>) {
-    let cpu_info = get_cpu_info();
-    let core_count = get_physical_core_count() / 2;
-    let processors_to_use = cpu_info.cores.iter().map(|c| c.1[0].processor).collect::<Vec<_>>();
+#[derive(Clone, Debug)]
+pub struct Topology {
+    pub core_count: u16,
+    pub processor_count: u16,
+    pub threads: Vec<TopologyThread>,
+}
 
-    (core_count, Arc::new(processors_to_use))
+#[derive(Clone, Debug)]
+pub enum TopologyThreadKind {
+    IO,
+    Reactor,
+}
+
+#[derive(Clone, Debug)]
+pub struct TopologyThread {
+    pub core: u16,
+    pub processor: u16,
+    pub kind: TopologyThreadKind,
+}
+
+impl Topology {
+    pub fn new() -> Self {
+        let cpu_info = get_cpu_info();
+        let core_count = cpu_info.cores.len();
+        assert!(core_count > 2 && core_count % 2 == 0);
+        let io_cores = core_count / 2;
+
+        let mut threads = Vec::with_capacity(io_cores + 1);
+
+        for core in cpu_info.cores.iter().take(io_cores) {
+            threads.push(TopologyThread {
+                core: *core.0,
+                processor: core.1[0].processor,
+                kind: TopologyThreadKind::IO,
+            });
+        }
+
+        let reactor_core = cpu_info.cores.iter().nth(io_cores).unwrap();
+        threads.push(TopologyThread {
+            core: *reactor_core.0 as u16,
+            processor: reactor_core.1[0].processor as u16,
+            kind: TopologyThreadKind::Reactor,
+        });
+
+        Self {
+            core_count: core_count as u16,
+            processor_count: core_count as u16,
+            threads,
+        }
+    }
 }
