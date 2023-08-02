@@ -108,7 +108,7 @@ pub struct Topology {
     pub threads: Vec<TopologyThread>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TopologyThreadKind {
     IO,
     Reactor,
@@ -116,6 +116,7 @@ pub enum TopologyThreadKind {
 
 #[derive(Clone, Debug)]
 pub struct TopologyThread {
+    pub worker_id: u16,
     pub core: u16,
     pub processor: u16,
     pub kind: TopologyThreadKind,
@@ -130,8 +131,9 @@ impl Topology {
 
         let mut threads = Vec::with_capacity(io_cores + 1);
 
-        for core in cpu_info.cores.iter().take(io_cores) {
+        for (worker_id, core) in cpu_info.cores.iter().take(io_cores).enumerate() {
             threads.push(TopologyThread {
+                worker_id: worker_id as u16,
                 core: *core.0,
                 processor: core.1[0].processor,
                 kind: TopologyThreadKind::IO,
@@ -140,6 +142,7 @@ impl Topology {
 
         let reactor_core = cpu_info.cores.iter().nth(io_cores).unwrap();
         threads.push(TopologyThread {
+            worker_id: threads.last().unwrap().worker_id + 1,
             core: *reactor_core.0 as u16,
             processor: reactor_core.1[0].processor as u16,
             kind: TopologyThreadKind::Reactor,

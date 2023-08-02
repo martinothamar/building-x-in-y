@@ -26,6 +26,7 @@ use tokio::runtime;
 
 use crate::buf_ring;
 
+use super::reactor;
 use crate::buf_ring::FixedSizeBufRing;
 use crate::resp;
 use crate::util::*;
@@ -36,20 +37,26 @@ pub struct IoWorker {
 }
 
 struct IoWorkerImpl {
-    _id: u64,
+    _worker_id: u16,
+    _thread_id: u64,
     processor: u16,
     name: String,
+
+    readiness: reactor::Readiness,
 
     active_connections: usize,
 }
 
 impl IoWorker {
-    pub fn new(id: u64, processor: u16, name: String) -> Self {
+    pub fn new(worker_id: u16, thread_id: u64, processor: u16, name: String, readiness: reactor::Readiness) -> Self {
         Self {
             inner: Rc::new(RefCell::new(IoWorkerImpl {
-                _id: id,
+                _worker_id: worker_id,
+                _thread_id: thread_id,
                 processor,
                 name,
+
+                readiness,
 
                 active_connections: 0,
             })),
@@ -90,10 +97,22 @@ impl IoWorker {
         me.active_connections
     }
 
+    #[inline]
+    fn wait_readable(&self) -> reactor::ReadyFut {
+        let me = self.inner.borrow();
+        me.readiness.wait_readable()
+    }
+
+    #[inline]
+    fn reset_readiness(&self) {
+        let me = self.inner.borrow();
+        me.readiness.reset();
+    }
+
     pub fn run(self) -> Result<()> {
         let rt = runtime::Builder::new_current_thread()
-            .enable_time()
-            .enable_io()
+            // .enable_time()
+            // .enable_io()
             .build()
             .context("failed to create async executor")?;
         let local = tokio::task::LocalSet::new();
@@ -129,8 +148,6 @@ impl IoWorker {
             inner: Rc::new(RefCell::new(ring)),
         };
 
-        let ring_fd = AsyncFd::with_interest(ring.clone(), Interest::READABLE)?;
-
         ring.register_files(&[listener.as_raw_fd()])?;
 
         {
@@ -154,13 +171,12 @@ impl IoWorker {
         };
 
         loop {
-            let mut guard = ring_fd.readable().await?;
+            self.wait_readable().await;
 
             // log_info!(worker, "reading cqe's");
 
-            let ring = guard.get_inner();
             ring.sync_cq();
-            for cqe in ring {
+            for cqe in &ring {
                 let ret = cqe.result();
 
                 let op_index = cqe.user_data() as usize;
@@ -222,7 +238,7 @@ impl IoWorker {
             ring.sync_sq();
             ring.submit()?;
 
-            guard.clear_ready();
+            self.reset_readiness();
         }
 
         #[allow(unreachable_code)]

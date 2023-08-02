@@ -16,6 +16,7 @@ tracing = "0.1"
 tokio = { version = "1.29.1", features = ["time", "signal", "macros", "rt"] }
 io-uring = "0.6.0"
 slab = "0.4"
+futures-core = "0.3.28"
 
 [[example]]
 name = "server"
