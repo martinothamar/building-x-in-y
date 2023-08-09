@@ -1,18 +1,19 @@
 use anyhow::{Context, Result};
 use futures_core::task::__internal::AtomicWaker;
-use io_uring::IoUring;
+use io_uring::{cqueue, opcode, squeue, types, IoUring};
 use std::{
     cell::{Ref, RefCell},
     future::Future,
+    os::fd::AsRawFd,
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, AtomicPtr, Ordering},
-        Arc,
+        atomic::{AtomicBool, AtomicI32, Ordering},
+        Arc, Barrier,
     },
-    task::Waker,
 };
 
 use crate::linux::{Topology, TopologyThreadKind};
+use crate::util::*;
 
 #[derive(Clone, Debug)]
 pub struct ReactorWorker {
@@ -24,7 +25,7 @@ pub struct ReactorWorker {
 struct ReactorWorkerState {
     _worker_id: u16,
     _thread_id: u64,
-    processor: u16,
+    _processor: u16,
     name: String,
 }
 
@@ -35,11 +36,17 @@ pub struct ReactorWorkerShared {
 
 impl ReactorWorker {
     pub fn new(worker_id: u16, thread_id: u64, processor: u16, name: String, topology: Topology) -> Self {
+        assert!(topology
+            .threads
+            .iter()
+            .enumerate()
+            .all(|(i, t)| t.worker_id as usize == i));
+
         Self {
             state: Rc::new(RefCell::new(ReactorWorkerState {
                 _worker_id: worker_id,
                 _thread_id: thread_id,
-                processor,
+                _processor: processor,
                 name,
             })),
             shared: Arc::new(ReactorWorkerShared {
@@ -57,17 +64,92 @@ impl ReactorWorker {
         Arc::clone(&self.shared)
     }
 
-    pub fn run(self) -> Result<()> {
-        // let ring = IoUring::builder()
-        //     .setup_coop_taskrun()
-        //     // .setup_defer_taskrun()
-        //     .setup_single_issuer()
-        //     .setup_cqsize(256)
-        //     // .setup_sqpoll(100)
-        //     // .setup_sqpoll_cpu((worker.borrow().processor + 1) as u32)
-        //     .build(128)
-        //     .context("failed to initialize IO uring")?;
+    pub fn run(self, barrier: Arc<Barrier>) -> Result<()> {
+        let mut ring = IoUring::<squeue::Entry, cqueue::Entry>::builder()
+            .setup_coop_taskrun()
+            // .setup_defer_taskrun()
+            // .setup_iopoll()
+            .setup_single_issuer()
+            .setup_cqsize(64)
+            // .setup_sqpoll(100)
+            // .setup_sqpoll_cpu((worker.borrow().processor + 1) as u32)
+            .build(32)
+            .context("failed to initialize IO uring")?;
 
+        barrier.wait(); // All fd should be set for readiness
+
+        let shared = self.get_shared();
+
+        let fds = shared
+            .readiness
+            .iter()
+            .map(|v| (v.inner.fd.load(Ordering::SeqCst), v))
+            .collect::<Vec<_>>();
+        assert!(
+            fds.iter().all(|fd| fd.0 != -1 && fd.0 >= 0),
+            "All ring fd's should be set from the IO threads"
+        );
+
+        let (submitter, mut sq, mut cq) = ring.split();
+
+        for (i, &(fd, _)) in fds.iter().enumerate() {
+            let poll_op = opcode::PollAdd::new(types::Fd(fd), libc::POLLIN as _)
+                .multi(true) // TODO: hmm multi does not actually work
+                .build()
+                .user_data(i as u64);
+
+            log_info!(self, "submitting fd, op: {:?}", poll_op);
+            unsafe { sq.push(&poll_op)? };
+        }
+        sq.sync();
+
+        let mut state: Vec<(bool, u32)> = vec![(false, 0); fds.len()];
+
+        loop {
+            // info!("reactor waiting..");
+            submitter.submit_and_wait(1)?;
+            cq.sync();
+
+            while !cq.is_empty() {
+                for cqe in &mut cq {
+                    let i = cqe.user_data() as usize;
+
+                    let flags = cqe.flags();
+                    unsafe {
+                        let state = state.get_unchecked_mut(i);
+                        *state = (true, state.1 | flags);
+                    }
+                }
+
+                cq.sync();
+            }
+
+            for i in 0..state.len() {
+                let state = unsafe { state.get_unchecked_mut(i) };
+                if !state.0 {
+                    continue;
+                }
+
+                let &(fd, readiness) = unsafe { fds.get_unchecked(i) };
+                let flags = state.1;
+
+                // log_info!(self, "notifying readiness, flags: {}", flags);
+                readiness.set_ready();
+
+                if !cqueue::more(flags) {
+                    let poll_op = opcode::PollAdd::new(types::Fd(fd), libc::POLLIN as _)
+                        .multi(true)
+                        .build()
+                        .user_data(i as u64);
+                    unsafe { sq.push(&poll_op)? };
+                    sq.sync();
+                }
+
+                *state = (false, 0);
+            }
+        }
+
+        #[allow(unreachable_code)]
         Ok(())
     }
 
@@ -96,6 +178,7 @@ pub struct Readiness {
 struct ReadinessImpl {
     waker: AtomicWaker,
     ready: AtomicBool,
+    fd: AtomicI32,
 }
 
 #[derive(Debug)]
@@ -121,6 +204,7 @@ impl Readiness {
             inner: Arc::new(ReadinessImpl {
                 ready: AtomicBool::new(false),
                 waker: AtomicWaker::new(),
+                fd: AtomicI32::new(-1),
             }),
         }
     }
@@ -133,6 +217,10 @@ impl Readiness {
         };
 
         waker.wake();
+    }
+
+    pub fn set_fd<T: AsRawFd>(&self, fd: &T) {
+        self.inner.fd.store(fd.as_raw_fd(), Ordering::SeqCst);
     }
 
     pub fn wait_readable(&self) -> ReadyFut {

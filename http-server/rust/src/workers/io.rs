@@ -6,6 +6,8 @@ use std::net::TcpListener;
 use std::os::fd::AsRawFd;
 use std::os::fd::RawFd;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Barrier;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -20,8 +22,6 @@ use slab::Slab;
 use socket2::Domain;
 use socket2::Socket;
 use socket2::Type;
-use tokio::io::unix::AsyncFd;
-use tokio::io::Interest;
 use tokio::runtime;
 
 use crate::buf_ring;
@@ -109,9 +109,15 @@ impl IoWorker {
         me.readiness.reset();
     }
 
-    pub fn run(self) -> Result<()> {
+    #[inline]
+    fn send_fd_to_reactor(&self, ring: &IoUring) {
+        let me = self.inner.borrow_mut();
+        me.readiness.set_fd(ring);
+    }
+
+    pub fn run(self, barrier: Arc<Barrier>) -> Result<()> {
         let rt = runtime::Builder::new_current_thread()
-            // .enable_time()
+            .enable_time()
             // .enable_io()
             .build()
             .context("failed to create async executor")?;
@@ -126,6 +132,10 @@ impl IoWorker {
             // .setup_sqpoll_cpu((worker.borrow().processor + 1) as u32)
             .build(128)
             .context("failed to initialize IO uring")?;
+
+        self.send_fd_to_reactor(&ring);
+
+        barrier.wait();
 
         local.spawn_local(self.event_loop(ring));
 
@@ -171,6 +181,7 @@ impl IoWorker {
         };
 
         loop {
+            // log_info!(self, "waiting for cq");
             self.wait_readable().await;
 
             // log_info!(worker, "reading cqe's");
@@ -193,7 +204,7 @@ impl IoWorker {
                 match op {
                     Operation::None => unreachable!(),
                     Operation::Accept => {
-                        // log_info!(worker, "accepted request");
+                        // log_info!(self, "accepted request");
                         let fd = ret;
                         let read_op = opcode::RecvMulti::new(types::Fd(fd), bg_id)
                             .build()
@@ -204,7 +215,7 @@ impl IoWorker {
                     Operation::Read(fd) => {
                         if ret == 0 {
                             // EOF
-                            // log_info!(worker, "EOF for request");
+                            // log_info!(self, "EOF for request");
                             operations.remove(op_index);
                             self.decrement_active_connections();
                         } else {
@@ -224,21 +235,24 @@ impl IoWorker {
                                 .build()
                                 .user_data(operations.insert(Operation::Write(*fd)) as _);
                                 ring.push_sq(&write_op)?;
+                                // log_info!(self, "submitted write");
                             } else {
                                 log_error!(self, "got response, but couldn't reach end of request");
                             }
                         }
                     }
                     Operation::Write(_fd) => {
-                        // log_info!(worker, "wrote {}", len);
+                        // log_info!(self, "wrote {}", _fd);
                     }
                 }
             }
+            ring.sync_cq();
 
+            // log_info!(self, "syncing sq");
             ring.sync_sq();
-            ring.submit()?;
 
             self.reset_readiness();
+            ring.submit()?;
         }
 
         #[allow(unreachable_code)]

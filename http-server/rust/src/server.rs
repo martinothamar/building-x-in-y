@@ -1,6 +1,7 @@
 use std::panic;
 use std::process;
 use std::sync::Arc;
+use std::sync::Barrier;
 use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
@@ -22,6 +23,8 @@ pub fn start() -> Result<()> {
 
     let shared_reactor = Arc::new(OnceLock::new());
 
+    let barrier = Arc::new(Barrier::new(topology.threads.len()));
+
     {
         let topology = topology.clone();
         let thread = topology
@@ -32,6 +35,7 @@ pub fn start() -> Result<()> {
             .unwrap();
 
         let reactor_cell = shared_reactor.clone();
+        let barrier = barrier.clone();
         let thread = thread::Builder::new()
             .name(format!("httpsrv-reactor-worker-{}-c{}", thread.worker_id, thread.core))
             .spawn(move || {
@@ -57,7 +61,7 @@ pub fn start() -> Result<()> {
                 linux::pin_thread(processor);
                 log_info!(worker, "thread pinned to processor: {}", processor);
 
-                worker.run()
+                worker.run(barrier)
             })?;
 
         threads.push(thread);
@@ -80,6 +84,7 @@ pub fn start() -> Result<()> {
         let thread = thread.clone();
         let shared_reactor = shared_reactor.clone();
 
+        let barrier = barrier.clone();
         let thread = thread::Builder::new()
             .name(format!("httpsrv-io-worker-{}-c{}", thread.worker_id, thread.core))
             .spawn(move || {
@@ -101,14 +106,14 @@ pub fn start() -> Result<()> {
                 linux::pin_thread(processor);
                 log_info!(worker, "thread pinned to processor: {}", processor);
 
-                worker.run()
+                worker.run(barrier)
             })?;
 
         threads.push(thread);
     }
 
     for t in threads {
-        t.join().map_err(|e| anyhow!("Thread panicked: {:?}", e))??;
+        t.join().expect("No threads should panic, as process should exit immediately in that case")?;
     }
 
     Ok(())
