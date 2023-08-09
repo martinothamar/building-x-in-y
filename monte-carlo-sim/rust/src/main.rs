@@ -23,16 +23,16 @@ async fn main() -> Result<()> {
     let teams_dto = serde_json::from_slice::<Vec<TeamDto>>(&buf)?;
 
     const ITERATIONS: usize = 32;
-    let mut state_allocator = sim::new_allocator();
+    let state_allocator = sim::new_allocator();
     let mut markets_allocator = sim::new_allocator();
 
-    let mut state = sim::State::new(&mut state_allocator, &teams_dto);
+    let mut state = sim::State::new(&state_allocator, &teams_dto);
 
     let mut elapsed = [Duration::ZERO; ITERATIONS];
 
     (0..ITERATIONS).for_each(|i| {
         let start = Instant::now();
-        sim::simulate::<100_000>(&mut state, &mut markets_allocator);
+        sim::simulate::<100_000>(&mut state, &markets_allocator);
         let stop = Instant::now();
 
         let duration = stop.duration_since(start);

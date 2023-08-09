@@ -96,7 +96,7 @@ pub fn new_allocator() -> Bump {
 }
 
 impl State {
-    pub fn new(allocator: &mut Bump, teams: &[TeamDto]) -> Self {
+    pub fn new(allocator: & Bump, teams: &[TeamDto]) -> Self {
         unsafe {
             let mut seed: RngImplSeed = Default::default();
             rand::thread_rng().fill_bytes(&mut *seed);
@@ -191,7 +191,7 @@ impl State {
 }
 
 #[inline(never)]
-pub fn simulate<'a, const S: usize>(state: &mut State, markets_allocator: &'a mut Bump) -> Markets<'a> {
+pub fn simulate<'a, const S: usize>(state: &mut State, markets_allocator: &'a Bump) -> Markets<'a> {
     unsafe {
         let home_poisson = state.home_poisson.as_ptr();
         let away_poisson = state.away_poisson.as_ptr();
@@ -214,13 +214,13 @@ pub fn simulate<'a, const S: usize>(state: &mut State, markets_allocator: &'a mu
             // results[0] won the season
             let results = table
                 .iter()
-                .take(state.number_of_teams as usize)
+                .take(state.number_of_teams)
                 .map(|v| *v as i8)
                 .enumerate()
                 .map(|(i, v)| (i as u8, v))
                 .sorted_unstable_by_key(|a| -a.1);
 
-            std::ptr::copy(results.as_ref().as_ptr(), sorted_table, state.number_of_teams as usize);
+            std::ptr::copy(results.as_ref().as_ptr(), sorted_table, state.number_of_teams);
 
             for p in 0..state.number_of_teams {
                 // i is the index in the teams input slice
@@ -350,7 +350,7 @@ unsafe fn simulate_sides(L: __m512d, k: &mut __m512d, rng: &mut RngImpl) {
 }
 
 #[inline(never)]
-unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: &'a mut Bump) -> Markets<'a> {
+unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: &'a Bump) -> Markets<'a> {
     // An arena allocator is important here, since the output markets
     // are always dynamic in size, dependent on simulation results.
     // This lets the caller control the lifetime of the allocated memory.
@@ -368,7 +368,7 @@ unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: 
         let outcomes: Vec<Outcome, &'a Bump> = OutcomeVec::with_capacity_in(state.number_of_teams, allocator);
         let mut outcomes = std::mem::ManuallyDrop::new(outcomes);
         for i in 0..state.number_of_teams {
-            let idx = i * state.number_of_teams + 0; // 0 for the winner position
+            let idx = i * state.number_of_teams; // 0 for the winner position
             let number_of_wins = *table_position_history.add(idx);
             if number_of_wins == 0 {
                 continue;
@@ -400,7 +400,7 @@ unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: 
         for i in 0..state.number_of_teams {
             let base_idx = i * state.number_of_teams; // 0 for the winner position
             let top_4_state = [
-                *table_position_history.add(base_idx + 0),
+                *table_position_history.add(base_idx),
                 *table_position_history.add(base_idx + 1),
                 *table_position_history.add(base_idx + 2),
                 *table_position_history.add(base_idx + 3),
@@ -426,9 +426,9 @@ unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: 
 
 // There is no simple intrinsic for movemask as there is in other AVX2 (which is a single instruction intrinsic)
 // here is an equivalent for AVX512
-// taken from here: https://github.com/flang-compiler/flang/blob/d9280ff4e0cb296abec03ee7bb4a2b04f7dae932/runtime/libpgmath/lib/common/mth_avx512helper.h#L215
+// taken from here: https://github.com/flang-compiler/flang/blob/d9280ff4e0cb296abec03ee7bb4a2b04f7dae932/runtime/libpgmath/lib/common/mth_avx512helper.h#L215s
 #[inline(always)]
-pub unsafe fn mm512_movemask_pd(x: __m512d) -> u8 {
+unsafe fn mm512_movemask_pd(x: __m512d) -> u8 {
     _mm512_cmpneq_epi64_mask(
         _mm512_setzero_si512(),
         _mm512_and_si512(
@@ -461,7 +461,7 @@ mod tests {
 
     use super::*;
 
-    fn get_state(allocator: &mut Bump) -> State {
+    fn get_state(allocator: &Bump) -> State {
         let file = File::open("../input.json").unwrap_or_else(|_| File::open("monte-carlo-sim/input.json").unwrap());
         let mut file = BufReader::new(file);
         let mut buf = Vec::with_capacity(512);
@@ -475,8 +475,8 @@ mod tests {
 
     #[test]
     fn size() {
-        let mut allocator = new_allocator();
-        let state = get_state(&mut allocator);
+        let allocator = new_allocator();
+        let state = get_state(&allocator);
         let size = state.size_of();
 
         // As per lscpu, I have 384KiB total L1 data cache, across 8 cores
@@ -491,13 +491,13 @@ mod tests {
 
     #[test]
     fn actually_runs() {
-        let mut state_allocator = new_allocator();
+        let state_allocator = new_allocator();
         let mut markets_allocator = new_allocator();
 
-        let mut state = get_state(&mut state_allocator);
+        let mut state = get_state(&state_allocator);
 
         for _ in 1..=10 {
-            let markets = simulate::<10_000>(&mut state, &mut markets_allocator);
+            let markets = simulate::<10_000>(&mut state, &markets_allocator);
             assert!(markets.len() == 2);
 
             state.reset();
@@ -516,12 +516,12 @@ mod tests {
 
         unsafe {
             let slice = slice::from_raw_parts(markets1.markets.as_ptr(), markets1.markets.len());
-            assert!(slice.len() == 0);
+            assert!(slice.is_empty());
             assert!(markets1.markets.capacity() == 4);
         }
         unsafe {
             let slice = slice::from_raw_parts(markets2.markets.as_ptr(), markets2.markets.len());
-            assert!(slice.len() == 0);
+            assert!(slice.is_empty());
             assert!(markets2.markets.capacity() == 4);
         }
     }

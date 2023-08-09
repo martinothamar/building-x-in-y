@@ -96,7 +96,7 @@ pub fn new_allocator() -> Bump {
 }
 
 impl State {
-    pub fn new(allocator: &mut Bump, teams: &[TeamDto]) -> Self {
+    pub fn new(allocator: &Bump, teams: &[TeamDto]) -> Self {
         unsafe {
             let mut seed: RngImplSeed = Default::default();
             rand::thread_rng().fill_bytes(&mut *seed);
@@ -191,7 +191,7 @@ impl State {
 }
 
 #[inline(never)]
-pub fn simulate<'a, const S: usize>(state: &mut State, markets_allocator: &'a mut Bump) -> Markets<'a> {
+pub fn simulate<'a, const S: usize>(state: &mut State, markets_allocator: &'a Bump) -> Markets<'a> {
     unsafe {
         let home_poisson = state.home_poisson.as_ptr();
         let away_poisson = state.away_poisson.as_ptr();
@@ -364,7 +364,7 @@ unsafe fn simulate_sides(L: __m256d, k: &mut __m256d, rng: &mut RngImpl) {
 }
 
 #[inline(never)]
-unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: &'a mut Bump) -> Markets<'a> {
+unsafe fn extract_markets<'a, const S: usize>(state: &State, markets_allocator: &'a Bump) -> Markets<'a> {
     // An arena allocator is important here, since the output markets
     // are always dynamic in size, dependent on simulation results.
     // This lets the caller control the lifetime of the allocated memory.
@@ -449,7 +449,7 @@ mod tests {
 
     use super::*;
 
-    fn get_state(allocator: &mut Bump) -> State {
+    fn get_state(allocator: &Bump) -> State {
         let file = File::open("../input.json").unwrap_or_else(|_| File::open("monte-carlo-sim/input.json").unwrap());
         let mut file = BufReader::new(file);
         let mut buf = Vec::with_capacity(512);
@@ -463,8 +463,8 @@ mod tests {
 
     #[test]
     fn size() {
-        let mut allocator = new_allocator();
-        let state = get_state(&mut allocator);
+        let allocator = new_allocator();
+        let state = get_state(&allocator);
         let size = state.size_of();
 
         // As per lscpu, I have 384KiB total L1 data cache, across 8 cores
@@ -479,13 +479,13 @@ mod tests {
 
     #[test]
     fn actually_runs() {
-        let mut state_allocator = new_allocator();
+        let state_allocator = new_allocator();
         let mut markets_allocator = new_allocator();
 
-        let mut state = get_state(&mut state_allocator);
+        let mut state = get_state(&state_allocator);
 
         for _ in 1..=10 {
-            let markets = simulate::<10_000>(&mut state, &mut markets_allocator);
+            let markets = simulate::<10_000>(&mut state, &markets_allocator);
             assert!(markets.len() == 2);
 
             state.reset();
