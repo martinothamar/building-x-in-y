@@ -23,10 +23,10 @@ fn criterion_benchmark(c: &mut Criterion) {
         // Using som RefCell's here, since I cant mutably borrow these in both of the
         // iter_batched closures. Do dynamic borrow checking instead.
         // Perf hit is negligible, since one iteration runs in the millisecond range
-        let mut state_allocator = sim::new_allocator();
+        let state_allocator = sim::new_allocator();
         let markets_allocator = RefCell::new(sim::new_allocator());
 
-        let state = RefCell::new(sim::State::new(&mut state_allocator, &teams_dto));
+        let state = RefCell::new(sim::State::new(&state_allocator, &teams_dto));
 
         b.iter_batched(
             || {
@@ -35,10 +35,10 @@ fn criterion_benchmark(c: &mut Criterion) {
             },
             |_| {
                 let mut state = state.borrow_mut();
-                let mut markets_allocator = markets_allocator.borrow_mut();
+                let markets_allocator = markets_allocator.borrow_mut();
                 // Stick to 1'000 simulations, as that keeps the running time to within a couple of milliseconds.
                 // hopefully then the iterations are within a single OS scheduler timeslice
-                let markets = sim::simulate::<1_000>(&mut state, &mut markets_allocator);
+                let markets = sim::simulate::<1_000>(&mut state, &markets_allocator);
                 let market = &markets[0];
                 market.outcomes[0].probability
             },
