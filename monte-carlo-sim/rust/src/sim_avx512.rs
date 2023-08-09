@@ -104,8 +104,8 @@ impl State {
             // Length needs to be a multiple of 8,
             // since we iterate through and load these numbers into 512bit vectors.
             // Some of these vectors will have irrelevant data, but those are masked off/not used.
-            let poisson_len = crate::util::next_multiple_of(teams.len(), LANES);
-            let table_len: usize = crate::util::next_multiple_of(teams.len(), LANES);
+            let poisson_len = crate::util::next_multiple_of(teams.len(), LANES as usize);
+            let table_len: usize = crate::util::next_multiple_of(teams.len(), LANES as usize);
             // Now vectorization, so doesn't need to be multiple of 8
             let sorted_table_len = teams.len();
             // The table history contains `teams.len()` items per team,

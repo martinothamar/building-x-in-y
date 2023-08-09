@@ -6,6 +6,7 @@
         "ziglang.vscode-zig",
         "rust-lang.rust-analyzer",
         "ms-vscode.makefile-tools",
-        "vadimcn.vscode-lldb"
+        "vadimcn.vscode-lldb",
+        "tamasfe.even-better-toml"
     ]
 }

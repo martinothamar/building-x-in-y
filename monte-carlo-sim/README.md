@@ -146,11 +146,58 @@ About 70% of the time is spent simulating the matches (sampling goals from poiss
 
 ![Flamegraph from `cargo flamegraph`](/monte-carlo-sim/rust/flamegraph.svg)
 
+## Toplev/TMAM
+
+So we are BE bound, whee branch misprediction and port utilization are the biggest issues
+
+```
+# 4.6-full-perf on 11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz [tgl/icelake]
+FE             Frontend_Bound                                        % Slots                       3.7  < [ 7.0%]
+BAD            Bad_Speculation                                       % Slots                      38.9    [ 7.0%]
+BE             Backend_Bound                                         % Slots                      31.5    [ 7.0%]
+RET            Retiring                                              % Slots                      25.9  < [14.0%]
+FE             Frontend_Bound.Fetch_Latency                          % Slots                       2.6  < [14.0%]
+FE             Frontend_Bound.Fetch_Bandwidth                        % Slots                       1.0  < [14.0%]
+BAD            Bad_Speculation.Branch_Mispredicts                    % Slots                      38.9    [ 7.0%]<==
+BAD            Bad_Speculation.Machine_Clears                        % Slots                       0.0  < [ 7.0%]
+BE/Mem         Backend_Bound.Memory_Bound                            % Slots                       1.1  < [ 7.0%]
+BE/Core        Backend_Bound.Core_Bound                              % Slots                      30.4    [ 7.0%]
+RET            Retiring.Light_Operations                             % Slots                      24.2  < [ 7.0%]
+RET            Retiring.Heavy_Operations                             % Slots                       1.7  < [ 7.0%]
+FE             Frontend_Bound.Fetch_Latency.ICache_Misses            % Clocks                      0.0  < [ 7.0%]
+FE             Frontend_Bound.Fetch_Latency.ITLB_Misses              % Clocks                      0.1  < [ 7.0%]
+FE             Frontend_Bound.Fetch_Latency.Branch_Resteers          % Clocks                      5.5  < [ 7.0%]
+FE             Frontend_Bound.Fetch_Latency.MS_Switches              % Clocks_est                  0.1  < [ 7.0%]
+FE             Frontend_Bound.Fetch_Latency.LCP                      % Clocks                      0.0  < [ 7.0%]
+FE             Frontend_Bound.Fetch_Latency.DSB_Switches             % Clocks                      0.0  < [ 7.0%]
+FE             Frontend_Bound.Fetch_Bandwidth.MITE                   % Slots_est                   0.0  < [ 7.0%]
+FE             Frontend_Bound.Fetch_Bandwidth.DSB                    % Slots_est                   8.9  < [14.0%]
+FE             Frontend_Bound.Fetch_Bandwidth.LSD                    % Slots_est                   0.0  < [ 7.0%]
+BAD            Bad_Speculation.Branch_Mispredicts.Other_Mispredicts  % Slots                       2.7  < [ 7.0%]
+BAD            Bad_Speculation.Machine_Clears.Other_Nukes            % Slots                       0.0  < [ 7.0%]
+BE/Mem         Backend_Bound.Memory_Bound.L1_Bound                   % Stalls                      1.2  < [ 7.0%]
+BE/Mem         Backend_Bound.Memory_Bound.L2_Bound                   % Stalls                      0.0  < [ 7.0%]
+BE/Mem         Backend_Bound.Memory_Bound.L3_Bound                   % Stalls                      0.0  < [ 7.0%]
+BE/Mem         Backend_Bound.Memory_Bound.DRAM_Bound                 % Stalls                      0.0  < [ 7.0%]
+BE/Mem         Backend_Bound.Memory_Bound.Store_Bound                % Stalls                      0.0  < [ 7.0%]
+BE/Core        Backend_Bound.Core_Bound.Divider                      % Clocks                      0.0  < [ 7.0%]
+BE/Core        Backend_Bound.Core_Bound.Ports_Utilization            % Clocks                     43.1    [ 7.0%]
+RET            Retiring.Light_Operations.FP_Arith                    % Uops                       15.9  < [ 7.0%]
+RET            Retiring.Light_Operations.Memory_Operations           % Slots                       3.0  < [ 7.0%]
+RET            Retiring.Light_Operations.Branch_Instructions         % Slots                       1.5  < [ 7.0%]
+RET            Retiring.Light_Operations.Nop_Instructions            % Slots                       0.2  < [ 7.0%]
+RET            Retiring.Light_Operations.Other_Light_Ops             % Slots                       3.5  < [ 7.0%]
+RET            Retiring.Heavy_Operations.Few_Uops_Instructions       % Slots                       1.7  < [ 7.0%]
+RET            Retiring.Heavy_Operations.Microcode_Sequencer         % Slots                       0.0  < [ 7.0%]
+MUX
+```
+
 ## Next steps?
 
 I don't know here to go next, but I have some ideas that could be investigated
 
 * Deeper analysis of the performance of the vectorized instructions used in the hot loop ([read up on Agner Fog's instruction tables](https://www.agner.org/optimize/instruction_tables.pdf))
+* Port utilization
 * GPU parallelization (I did build a CUDA kernel prototype of this once, but it wasn't as fast. I'm probably bad at GPU)
 * CPU parallelization (doubt this is good)
 * Other algorithms?
