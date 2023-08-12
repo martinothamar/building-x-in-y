@@ -3,5 +3,5 @@ mod linux;
 mod resp;
 #[macro_use]
 mod util;
-pub(crate) mod workers;
+pub(crate) mod worker;
 pub mod server;

@@ -248,7 +248,12 @@ impl InnerBufRing {
         // the same BufRing but wrapped in Rc<_> so the wrapped buf_ring can be passed to the
         // outgoing GBuf.
 
-        let bid = io_uring::cqueue::buffer_select(flags).unwrap();
+        let Some(bid) = io_uring::cqueue::buffer_select(flags) else {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("couldn't select buffer for flags: {flags}"),
+            ));
+        };
 
         let len = res as usize;
 

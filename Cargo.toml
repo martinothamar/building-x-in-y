@@ -2,6 +2,8 @@
 members = [
     "dsa/rust",
     "http-server/rust",
+    "http-server/rust-baseline",
+    "http-server/rust-monoio",
     "monte-carlo-sim/rust"
 ]
 resolver = "2"

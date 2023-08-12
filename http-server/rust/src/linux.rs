@@ -70,7 +70,7 @@ pub fn get_cpu_info() -> &'static CpuInfo {
         }
 
         for processor in processors.iter() {
-            let core = cores.entry(processor.core_id).or_insert_with(Vec::new);
+            let core = cores.entry(processor.core_id).or_default();
             core.push(processor.clone());
         }
 
@@ -111,7 +111,6 @@ pub struct Topology {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TopologyThreadKind {
     IO,
-    Reactor,
 }
 
 #[derive(Clone, Debug)]
@@ -139,14 +138,6 @@ impl Topology {
                 kind: TopologyThreadKind::IO,
             });
         }
-
-        let reactor_core = cpu_info.cores.iter().nth(io_cores).unwrap();
-        threads.push(TopologyThread {
-            worker_id: threads.last().unwrap().worker_id + 1,
-            core: *reactor_core.0 as u16,
-            processor: reactor_core.1[0].processor as u16,
-            kind: TopologyThreadKind::Reactor,
-        });
 
         Self {
             core_count: core_count as u16,

@@ -22,5 +22,8 @@
     },
     "rust-analyzer.checkOnSave": true,
     "rust-analyzer.check.command": "clippy",
+    "[rust]": {
+        "editor.formatOnSave": true,
+    },
     "dotnet.defaultSolution": "disable",
 }
