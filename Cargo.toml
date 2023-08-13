@@ -4,7 +4,8 @@ members = [
     "http-server/rust",
     "http-server/rust-baseline",
     "http-server/rust-monoio",
-    "monte-carlo-sim/rust"
+    "monte-carlo-sim/rust",
+    "todo-api/rust"
 ]
 resolver = "2"
 
