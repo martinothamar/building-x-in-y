@@ -1,3 +1,0 @@
-
-run:
-	cargo run --release

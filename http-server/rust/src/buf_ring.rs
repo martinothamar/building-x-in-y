@@ -1,4 +1,6 @@
-#![allow(dead_code)]
+#![allow(warnings, unused)]
+
+// Copied from IO Uring tokio repo
 
 use io_uring::types;
 use io_uring::types::BufRingEntry;

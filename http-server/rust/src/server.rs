@@ -14,7 +14,7 @@ use crate::util::*;
 use crate::worker;
 
 pub fn start() -> Result<()> {
-    let topology = linux::Topology::new();
+    let topology = linux::Topology::new(4);
 
     let addr: SocketAddr = "0.0.0.0:8081".parse()?;
     info!("Starting http-server on {}", addr);

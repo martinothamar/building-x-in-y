@@ -122,15 +122,14 @@ pub struct TopologyThread {
 }
 
 impl Topology {
-    pub fn new() -> Self {
+    pub fn new(workers: usize) -> Self {
         let cpu_info = get_cpu_info();
         let core_count = cpu_info.cores.len();
         assert!(core_count > 2 && core_count % 2 == 0);
-        let io_cores = core_count / 2;
 
-        let mut threads = Vec::with_capacity(io_cores + 1);
+        let mut threads = Vec::with_capacity(workers);
 
-        for (worker_id, core) in cpu_info.cores.iter().take(io_cores).enumerate() {
+        for (worker_id, core) in cpu_info.cores.iter().take(workers).enumerate() {
             threads.push(TopologyThread {
                 worker_id: worker_id as u16,
                 core: *core.0,
