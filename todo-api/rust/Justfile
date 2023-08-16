@@ -1,0 +1,36 @@
+set dotenv-load
+
+alias i := install
+alias r := run
+alias am := add-migration
+alias rm := run-migrations
+
+default:
+  @just --list
+
+list:
+  @just --list
+
+install:
+  @echo 'Installing sqlx-cli…'
+  cargo install sqlx-cli
+  @echo 'Updating db...'
+  sqlx database create
+  sqlx migrate run
+
+recreate-db:
+  rm todos.db
+  sqlx database reset
+  sqlx migrate run
+
+run-migrations:
+  @echo 'Running migrations…'
+  sqlx migrate run
+
+add-migration name:
+  @echo 'Adding migration {{name}}…'
+  sqlx migrate add {{name}}
+
+run:
+  @echo "Starting todo-api with database $DATABASE_URL"
+  cargo run --release
