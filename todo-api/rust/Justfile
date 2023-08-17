@@ -17,6 +17,7 @@ install:
   @echo 'Updating db...'
   sqlx database create
   sqlx migrate run
+  cd ../../ && ln -s todo-api/rust/todos.db todos.db
 
 recreate-db:
   rm todos.db
