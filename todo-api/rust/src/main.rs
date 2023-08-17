@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
 
     let router = Router::new()
         .nest(health::PATH, health::router())
-        .nest(todos::PATH, todos::router(&db))
+        .nest(todos::http::PATH, todos::http::router(&db))
         .layer(infra::telemetry::tracing_middleware());
 
     info!("initialized router");
