@@ -1,10 +1,32 @@
 use std::str::FromStr;
 
+use anyhow::{ensure, Error, Result};
 use uuid::Uuid;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub(crate) struct TodoId {
     value: Uuid,
+}
+
+impl From<TodoId> for Uuid {
+    fn from(value: TodoId) -> Self {
+        value.value
+    }
+}
+
+impl TryFrom<Uuid> for TodoId {
+    type Error = Error;
+
+    fn try_from(value: Uuid) -> Result<Self, Self::Error> {
+        ensure!(!value.is_nil(), "Invalid UUID");
+        let version = value.get_version();
+        ensure!(
+            version == Some(uuid::Version::SortRand),
+            "Invalid UUID - not v7: {:?}",
+            version
+        );
+        Ok(Self { value })
+    }
 }
 
 impl TodoId {
@@ -28,18 +50,16 @@ pub(crate) struct Ordering {
     value: i64,
 }
 
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum NewOrderingError {
-    #[error("tried to construct todo ordering with negative number")]
-    Negative,
+impl From<Ordering> for i64 {
+    fn from(value: Ordering) -> Self {
+        value.value
+    }
 }
 
 impl Ordering {
-    pub(crate) fn new(value: i64) -> Result<Self, NewOrderingError> {
-        match value {
-            n if n >= 0 => Ok(Ordering { value: n }),
-            _ => Err(NewOrderingError::Negative),
-        }
+    pub(crate) fn new(value: i64) -> Result<Self> {
+        ensure!(value >= 0, "Invalid ordering - negative: {}", value);
+        Ok(Ordering { value })
     }
 }
 
@@ -52,19 +72,18 @@ pub(crate) struct Todo {
     pub(crate) done: bool,
 }
 
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum NewTodoError {
-    #[error("couldnt construct ordering")]
-    NewOrderingError(#[from] NewOrderingError),
-}
-
 impl Todo {
-    pub(crate) fn new(
-        ordering: i64,
-        title: String,
-        description: String,
-        done: Option<bool>,
-    ) -> Result<Self, NewTodoError> {
+    pub(crate) fn new(ordering: i64, title: String, description: String, done: Option<bool>) -> Result<Self> {
+        ensure!(
+            !title.is_empty() && title.len() < 2048,
+            "Invalid title length: {}",
+            title.len()
+        );
+        ensure!(
+            !description.is_empty() && description.len() < 2048,
+            "Invalid description length: {}",
+            description.len()
+        );
         Ok(Self {
             id: TodoId::new(),
             ordering: Ordering::new(ordering)?,

@@ -34,4 +34,4 @@ add-migration name:
 
 run:
   @echo "Starting todo-api with database $DATABASE_URL"
-  cargo run --release
+  cargo run
