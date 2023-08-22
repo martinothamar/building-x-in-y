@@ -7,6 +7,7 @@
         "rust-lang.rust-analyzer",
         "ms-vscode.makefile-tools",
         "vadimcn.vscode-lldb",
-        "tamasfe.even-better-toml"
+        "tamasfe.even-better-toml",
+        "ms-azuretools.vscode-docker"
     ]
 }
