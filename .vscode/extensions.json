@@ -8,6 +8,7 @@
         "ms-vscode.makefile-tools",
         "vadimcn.vscode-lldb",
         "tamasfe.even-better-toml",
-        "ms-azuretools.vscode-docker"
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml"
     ]
 }

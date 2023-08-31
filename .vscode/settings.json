@@ -25,5 +25,9 @@
     "[rust]": {
         "editor.formatOnSave": true,
     },
+    "[yaml]": {
+        "editor.defaultFormatter": "redhat.vscode-yaml",
+        "editor.formatOnSave": true
+    },
     "dotnet.defaultSolution": "disable",
 }

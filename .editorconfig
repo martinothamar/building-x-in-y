@@ -39,3 +39,8 @@ indent_style = tab
 indent_style = space
 indent_size = 2
 trim_trailing_whitespace = true
+
+# 2 space indentation for YAML
+[{*.yml,*.yaml}]
+indent_style = space
+indent_size = 2
