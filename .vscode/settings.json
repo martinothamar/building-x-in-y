@@ -29,5 +29,9 @@
         "editor.defaultFormatter": "redhat.vscode-yaml",
         "editor.formatOnSave": true
     },
+    "[csharp]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "csharpier.csharpier-vscode"
+    },
     "dotnet.defaultSolution": "disable",
 }
