@@ -13,6 +13,7 @@ Currently interesting in learning more about the following languages
 * Rust
 * Zig
 * C#
+* Go
 
 The code is organized such that the top level folders are topics, and first level subfolders are per programming language.
 Example (`git ls-tree -r --name-only HEAD | tree --fromfile`):
