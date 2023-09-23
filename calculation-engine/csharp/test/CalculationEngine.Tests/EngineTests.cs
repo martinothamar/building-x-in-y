@@ -9,10 +9,10 @@ public class EngineTests
         var nodes = new Node[]
         {
             new Operand(),
-            Operator.Plus,
+            Operator.Add,
             new LeftParens(),
             new Operand(),
-            Operator.Minus,
+            Operator.Sub,
             new Operand(),
             new RightParens(),
         };
@@ -32,10 +32,10 @@ public class EngineTests
         var nodes = new Node[]
         {
             new Operand(),
-            Operator.Plus,
+            Operator.Add,
             new LeftParens(),
             new Operand(),
-            Operator.Minus,
+            Operator.Sub,
             new Operand(),
             new RightParens(),
         };

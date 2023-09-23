@@ -12,6 +12,7 @@ Currently interesting in learning more about the following languages
 
 * Rust
 * Zig
+* C#
 
 The code is organized such that the top level folders are topics, and first level subfolders are per programming language.
 Example (`git ls-tree -r --name-only HEAD | tree --fromfile`):
@@ -39,7 +40,8 @@ Example (`git ls-tree -r --name-only HEAD | tree --fromfile`):
 
 * [Datastructures and algorithms (DSA)](/dsa)
 * [HTTP server](/http-server)
-* [Monte Carlo simulations](/monte-carlo-sim) - simulating a premier league season 100k times. SIMD
+* [Monte Carlo simulations](/monte-carlo-sim) - simulating a premier league season 100k times. SIMD, performance engineering
+* [Calculation Engine](/calculation-engine) - calculatione engine with a builder API and SIMD operations
 * [Todo API](/todo-api) - production-ready setup for apps/APIs in various languages
 
 ## Notes

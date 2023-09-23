@@ -11,7 +11,7 @@ public sealed class Expression
     private readonly int _requiredInputCount;
     private readonly List<Node> _expression;
 
-    private static int Prec(Node n) => n is Operator op ? _precedence[(int)op.Id - _precmin] : -1;
+    private static int Prec(Node n) => n is Operator op ? _precedence[(int)op.Value - _precmin] : -1;
 
     static Expression()
     {
@@ -66,9 +66,9 @@ public sealed class Expression
                 var left = stack.Pop();
 
                 double result;
-                if (@operator == Operator.Plus)
+                if (@operator == Operator.Add)
                     result = left + right;
-                else if (@operator == Operator.Minus)
+                else if (@operator == Operator.Sub)
                     result = left - right;
                 else if (@operator == Operator.Mul)
                     result = left * right;
@@ -122,9 +122,9 @@ public sealed class Expression
                     var left = stack.Pop();
 
                     Vector<double> result;
-                    if (@operator == Operator.Plus)
+                    if (@operator == Operator.Add)
                         result = left + right;
-                    else if (@operator == Operator.Minus)
+                    else if (@operator == Operator.Sub)
                         result = left - right;
                     else if (@operator == Operator.Mul)
                         result = left * right;
@@ -200,20 +200,15 @@ public sealed record RightParens : Node { }
 
 public sealed record Operator : Node
 {
-    public static readonly Operator Plus = new Operator('+', 2);
-    public static readonly Operator Minus = new Operator('-', 2);
-    public static readonly Operator Mul = new Operator('*', 2);
-    public static readonly Operator Div = new Operator('/', 2);
+    public static readonly Operator Add = new Operator('+');
+    public static readonly Operator Sub = new Operator('-');
+    public static readonly Operator Mul = new Operator('*');
+    public static readonly Operator Div = new Operator('/');
 
-    private readonly char _id;
+    public char Value { get; }
 
-    public char Id => _id;
-
-    private readonly byte _operands;
-
-    private Operator(char id, byte operands)
+    private Operator(char value)
     {
-        _id = id;
-        _operands = operands;
+        Value = value;
     }
 }
