@@ -78,14 +78,14 @@ func TestPop(t *testing.T) {
 	stack := NewStack[int]()
 
 	value := stack.Pop()
-	if value != nil {
+	if value != 0 {
 		t.Errorf("Pop() returned %v, not %v", value, nil)
 	}
 
 	expected := 1
 	stack.Push(expected)
 	value = stack.Pop()
-	if value == nil || *value != expected {
+	if value != expected {
 		t.Errorf("Pop() returned %v, not %v", value, expected)
 	}
 

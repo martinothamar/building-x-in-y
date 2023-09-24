@@ -1,4 +1,8 @@
-
+alias t := test
+alias b := bench
 
 test:
-  go test ./...
+  go test -v ./...
+
+bench:
+  go test -v -bench=. ./...

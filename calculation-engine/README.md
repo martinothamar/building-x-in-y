@@ -46,8 +46,11 @@ See the `csharp` folder for implementation.
 
 I have not spent a lot of time optimizing this, haven't even looked at the disassembly. But basic benchmark results are below.
 
-This benchmark compares three methods, and how they perform computing the same expression over columns of data.
-The baseline below is a manual vectorized loop, which will essentially be the best case performance for the tested formula: `a + (b - c)`
+This benchmark compares four methods, and how they perform computing the same expression over columns of data.
+The baseline methods below are manual vectorized and scalar loops, which will essentially be the best case performance for the tested formula: `a + (b - c)`
+
+The two other methods are doing the same calculation based on expression nodes in postfix order.
+Effectively, this measures the overhead of the calculation engine
 
 ```
 
@@ -59,9 +62,9 @@ AMD Ryzen 5 5600X, 1 CPU, 12 logical and 6 physical cores
 
 
 ```
-| Method           | Size | Mean        | Error    | StdDev   | Ratio         | RatioSD | Rank | Gen0   | Allocated | Alloc Ratio |
-|----------------- |----- |------------:|---------:|---------:|--------------:|--------:|-----:|-------:|----------:|------------:|
-| Baseline         | 512  |    469.5 ns |  3.49 ns |  3.09 ns |      baseline |         |    1 | 0.0486 |   4.02 KB |             |
-| VectorizedEngine | 512  |  2,212.3 ns |  5.79 ns |  5.13 ns |  4.71x slower |   0.04x |    2 | 0.0496 |    4.2 KB |  1.04x more |
-| ScalarEngine     | 512  | 15,770.2 ns | 77.67 ns | 68.85 ns | 33.59x slower |   0.29x |    3 | 0.5798 |  48.02 KB | 11.94x more |
-
+| Method             | Size | Mean        | Error     | StdDev    | Ratio         | RatioSD | Rank | Gen0   | Allocated | Alloc Ratio |
+|------------------- |----- |------------:|----------:|----------:|--------------:|--------:|-----:|-------:|----------:|------------:|
+| VectorizedBaseline | 512  |    473.7 ns |   2.92 ns |   2.44 ns |      baseline |         |    1 | 0.0486 |   4.02 KB |             |
+| ScalarBaseline     | 512  |    815.3 ns |   3.37 ns |   2.81 ns |  1.72x slower |   0.01x |    2 | 0.0486 |   4.02 KB |  1.00x more |
+| VectorizedEngine   | 512  |  2,202.6 ns |   6.25 ns |   5.22 ns |  4.65x slower |   0.02x |    3 | 0.0496 |    4.2 KB |  1.04x more |
+| ScalarEngine       | 512  | 15,888.9 ns | 108.07 ns | 101.09 ns | 33.49x slower |   0.29x |    4 | 0.5798 |  48.02 KB | 11.94x more |

@@ -1,9 +1,55 @@
-package expression
+package engine
 
 import (
 	"calcengine/internal"
 	"errors"
 )
+
+type ScalarEngine struct {
+	expression *Expression
+}
+
+func (e ScalarEngine) Evaluate(input []float64) (float64, error) {
+	if e.expression.requiredInputCount != len(input) {
+		return 0, errors.New("wrong input size")
+	}
+
+	stack := internal.NewStack[float64]()
+
+	operandIndex := 0
+	for _, op := range e.expression.expression {
+		if op.Type() == OperandType {
+			stack.Push(input[operandIndex])
+			operandIndex += 1
+		} else if op.Type() == OperatorType {
+			operator := op.(*Operator)
+
+			right := stack.Pop()
+			left := stack.Pop()
+
+			var result float64
+			switch operator {
+			case AddOperator:
+				result = left + right
+			case SubOperator:
+				result = left - right
+			case MulOperator:
+				result = left * right
+			case DivOperator:
+				result = left / right
+			default:
+				return 0, errors.New("unexpected operator")
+			}
+			stack.Push(result)
+		}
+	}
+
+	if stack.Len() != 1 {
+		return 0, errors.New("invalid expression")
+	}
+
+	return stack.Pop(), nil
+}
 
 type Expression struct {
 	expression         []Node
@@ -26,8 +72,8 @@ func FromInfix(expression []Node) (*Expression, error) {
 		} else if nodeType == LeftParensType {
 			stack.Push(op)
 		} else if nodeType == RightParensType {
-			for n := stack.Peek(); n != nil && (*n).Type() != LeftParensType; {
-				result = append(result, *stack.Pop())
+			for n := stack.Peek(); n != nil && (*n).Type() != LeftParensType; n = stack.Peek() {
+				result = append(result, stack.Pop())
 			}
 
 			if n := stack.Peek(); n != nil && (*n).Type() != LeftParensType {
@@ -37,8 +83,8 @@ func FromInfix(expression []Node) (*Expression, error) {
 			stack.Pop()
 		} else {
 			prec := precedence(op)
-			for n := stack.Peek(); n != nil && prec <= precedence(*n); {
-				result = append(result, *stack.Pop())
+			for n := stack.Peek(); n != nil && prec <= precedence(*n); n = stack.Peek() {
+				result = append(result, stack.Pop())
 			}
 
 			stack.Push(op)
@@ -46,7 +92,7 @@ func FromInfix(expression []Node) (*Expression, error) {
 	}
 
 	for stack.Len() > 0 {
-		result = append(result, *stack.Pop())
+		result = append(result, stack.Pop())
 	}
 
 	requiredInputCount := 0
@@ -60,6 +106,10 @@ func FromInfix(expression []Node) (*Expression, error) {
 		expression:         result,
 		requiredInputCount: requiredInputCount,
 	}, nil
+}
+
+func (e *Expression) ScalarEngine() ScalarEngine {
+	return ScalarEngine{expression: e}
 }
 
 func precedence(n Node) int {
@@ -115,10 +165,10 @@ func (o *RightParens) Type() NodeType {
 	return RightParensType
 }
 
-var Add Operator = Operator{value: '+'}
-var Sub Operator = Operator{value: '-'}
-var Mul Operator = Operator{value: '*'}
-var Div Operator = Operator{value: '/'}
+var AddOperator *Operator = &Operator{value: '+'}
+var SubOperator *Operator = &Operator{value: '-'}
+var MulOperator *Operator = &Operator{value: '*'}
+var DivOperator *Operator = &Operator{value: '/'}
 
 type Operator struct {
 	value rune

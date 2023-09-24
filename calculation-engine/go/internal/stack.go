@@ -52,12 +52,15 @@ func (s *Stack[T]) Peek() *T {
 	return &s.data[s.size-1]
 }
 
-func (s *Stack[T]) Pop() *T {
+func (s *Stack[T]) Pop() T {
+	var def T
 	if s.size == 0 {
-		return nil
+		return def
 	}
 
 	size := s.size
 	s.size = size - 1
-	return &s.data[size-1]
+	value := s.data[size-1]
+	s.data[size-1] = def
+	return value
 }

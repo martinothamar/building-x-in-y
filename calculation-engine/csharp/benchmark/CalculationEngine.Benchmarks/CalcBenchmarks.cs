@@ -45,7 +45,7 @@ public class CalcBenchmarks
     }
 
     [Benchmark(Baseline = true)]
-    public double[] Baseline()
+    public double[] VectorizedBaseline()
     {
         var results = new double[Size];
         var lanes = Vector<double>.Count;
@@ -56,6 +56,22 @@ public class CalcBenchmarks
             var c = new Vector<double>(_vectorInput[2], i);
             var result = a + (b - c);
             result.CopyTo(results, i);
+        }
+
+        return results;
+    }
+
+    [Benchmark]
+    public double[] ScalarBaseline()
+    {
+        var results = new double[Size];
+        for (int i = 0; i < Size; i++)
+        {
+            var a = _vectorInput[0][i];
+            var b = _vectorInput[1][i];
+            var c = _vectorInput[2][i];
+            var result = a + (b - c);
+            results[i] = result;
         }
 
         return results;
