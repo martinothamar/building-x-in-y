@@ -24,50 +24,54 @@ public readonly record struct VectorizedEngine
 
         var lanes = Vector256<double>.Count;
 
-        var stack = new StackStack<Vector256<double>>(stackalloc Vector256<double>[8]); // TODO hehe
+        var stack = new StackStack<int>(stackalloc int[8]); // TODO hehe
 
         var expr = _expression._expression;
 
-        for (int j = 0; j < expectedCount; j += lanes)
+        var operandIndex = 0;
+
+        for (int i = 0; i < expr.Count; i++)
         {
-            var operandIndex = 0;
+            var op = expr[i];
 
-            for (int i = 0; i < expr.Count; i++)
+            if (op is Operand)
             {
-                var op = expr[i];
+                stack.Push() = operandIndex++;
+            }
+            else if (op is Operator @operator)
+            {
+                ref var right = ref stack.Pop();
+                ref var left = ref stack.Pop();
 
-                if (op is Operand)
-                {
-                    var operand = Avx2.LoadVector256((double*)Unsafe.AsPointer(ref input[operandIndex++][j]));
-                    stack.Push() = operand;
-                }
-                else if (op is Operator @operator)
-                {
-                    ref var right = ref stack.Pop();
-                    ref var left = ref stack.Pop();
+                var leftCol = left < input.Length ? input[left] : results;
+                var rightCol = right < input.Length ? input[right] : results;
 
+                for (int j = 0; j < expectedCount; j += lanes)
+                {
+                    var l = Avx2.LoadVector256((double*)Unsafe.AsPointer(ref leftCol[j]));
+                    var r = Avx2.LoadVector256((double*)Unsafe.AsPointer(ref rightCol[j]));
                     Unsafe.SkipInit(out Vector256<double> result);
                     if (@operator == Operator.Add)
-                        result = Avx2.Add(left, right);
+                        result = Avx2.Add(l, r);
                     else if (@operator == Operator.Sub)
-                        result = Avx2.Subtract(left, right);
+                        result = Avx2.Subtract(l, r);
                     else if (@operator == Operator.Mul)
-                        result = Avx2.Multiply(left, right);
+                        result = Avx2.Multiply(l, r);
                     else if (@operator == Operator.Div)
-                        result = Avx2.Divide(left, right);
+                        result = Avx2.Divide(l, r);
                     else
                         ThrowHelper.ThrowArgumentException("Invalid operator");
 
-                    stack.Push() = result;
+                    Avx2.Store((double*)Unsafe.AsPointer(ref results[j]), result);
                 }
+
+                stack.Push() = input.Length;
             }
-
-            Debug.Assert(stack.Count == 1);
-            ref var passResult = ref stack.Pop();
-            passResult.CopyTo(results, j);
-
-            stack.Clear();
         }
+
+        Debug.Assert(stack.Count == 1);
+        ref var passResult = ref stack.Pop();
+        Debug.Assert(passResult == input.Length);
 
         // TODO - handle remainder
 
