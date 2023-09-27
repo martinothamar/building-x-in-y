@@ -1,6 +1,8 @@
 ﻿using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics.X86;
+using Microsoft.Data.Analysis;
+using System.Linq;
 
 namespace CalculationEngine.Benchmarks;
 
@@ -12,6 +14,10 @@ public class CalcBenchmarks
 
     private double[][] _vectorInput;
     private double[] _scalarInput;
+    private DoubleDataFrameColumn _dataFrameA;
+    private DoubleDataFrameColumn _dataFrameB;
+    private DoubleDataFrameColumn _dataFrameC;
+    private DataFrame _dataFrame;
     private Expression _expression;
     private ScalarEngine _scalarEngine;
     private VectorizedEngine _vectorizedEngine;
@@ -48,6 +54,11 @@ public class CalcBenchmarks
             2.0, // b
             1.0, // c
         };
+
+        _dataFrameA = new DoubleDataFrameColumn("a", _vectorInput[0]);
+        _dataFrameB = new DoubleDataFrameColumn("b", _vectorInput[1]);
+        _dataFrameC = new DoubleDataFrameColumn("c", _vectorInput[2]);
+        _dataFrame = new DataFrame(_dataFrameA, _dataFrameB, _dataFrameC);
     }
 
     [Benchmark(Baseline = true)]
@@ -85,6 +96,14 @@ public class CalcBenchmarks
         }
 
         return results;
+    }
+
+    [Benchmark]
+    public IReadOnlyList<double?> DataFrame()
+    {
+        // What is this shit...
+        var result = _dataFrameA + (_dataFrameB - _dataFrameC);
+        return result[0, Size];
     }
 
     [Benchmark]

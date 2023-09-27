@@ -46,11 +46,13 @@ See the `csharp` folder for implementation.
 
 I have not spent a lot of time optimizing this, haven't even looked at the disassembly. But basic benchmark results are below.
 
-This benchmark compares five methods, and how they perform computing the same expression over columns of data.
+This benchmark compares several methods, and how they perform computing the same expression over columns of data.
 The baseline methods below are manual/portable vectorized and scalar loops, which will essentially be the best case performance for the tested formula: `a + (b - c)`
 
 The two other methods are doing the same calculation based on expression nodes in postfix order.
 Effectively, this measures the overhead of the calculation engine
+
+P.S: the `Microsoft.Data.Analysis.DataFrame` stuff is performing very poorly
 
 ```
 
@@ -62,11 +64,13 @@ AMD Ryzen 5 5600X, 1 CPU, 12 logical and 6 physical cores
 
 
 ```
-| Method                     | Size | Mean       | Error     | StdDev    | Ratio         | RatioSD | Rank | Gen0   | Gen1   | Allocated | Alloc Ratio |
-|--------------------------- |----- |-----------:|----------:|----------:|--------------:|--------:|-----:|-------:|-------:|----------:|------------:|
-| ManualVectorizedBaseline   | 8192 |   6.814 μs | 0.0369 μs | 0.0308 μs |      baseline |         |    1 | 0.7782 |      - |  64.02 KB |             |
-| PortableVectorizedBaseline | 8192 |   7.710 μs | 0.0681 μs | 0.0604 μs |  1.13x slower |   0.01x |    2 | 0.7782 |      - |  64.02 KB |  1.00x more |
-| ScalarBaseline             | 8192 |  12.743 μs | 0.0220 μs | 0.0183 μs |  1.87x slower |   0.01x |    3 | 0.7782 |      - |  64.02 KB |  1.00x more |
-| VectorizedEngine           | 8192 |  27.272 μs | 0.0668 μs | 0.0592 μs |  4.00x slower |   0.02x |    4 | 0.7629 |      - |  64.02 KB |  1.00x more |
-| ScalarEngine               | 8192 | 249.168 μs | 1.8085 μs | 1.6032 μs | 36.58x slower |   0.27x |    5 | 9.2773 | 1.9531 | 768.02 KB | 12.00x more |
+| Method                     | Size | Mean       | Error     | StdDev    | Ratio         | RatioSD | Rank | Gen0    | Gen1    | Gen2    | Allocated | Alloc Ratio |
+|--------------------------- |----- |-----------:|----------:|----------:|--------------:|--------:|-----:|--------:|--------:|--------:|----------:|------------:|
+| ManualVectorizedBaseline   | 8192 |   6.768 μs | 0.0185 μs | 0.0155 μs |      baseline |         |    1 |  0.7782 |       - |       - |  64.02 KB |             |
+| PortableVectorizedBaseline | 8192 |   7.597 μs | 0.0319 μs | 0.0298 μs |  1.12x slower |   0.01x |    2 |  0.7782 |       - |       - |  64.02 KB |  1.00x more |
+| ScalarBaseline             | 8192 |  12.789 μs | 0.0386 μs | 0.0322 μs |  1.89x slower |   0.01x |    3 |  0.7782 |       - |       - |  64.02 KB |  1.00x more |
+| VectorizedEngine           | 8192 |  26.993 μs | 0.0544 μs | 0.0483 μs |  3.99x slower |   0.01x |    4 |  0.7629 |       - |       - |  64.02 KB |  1.00x more |
+| DataFrame                  | 8192 | 147.448 μs | 0.0798 μs | 0.0707 μs | 21.79x slower |   0.06x |    5 | 41.5039 | 41.5039 | 41.5039 | 261.89 KB |  4.09x more |
+| ScalarEngine               | 8192 | 296.051 μs | 1.5972 μs | 1.4940 μs | 43.76x slower |   0.30x |    6 |  9.2773 |  1.9531 |       - | 768.02 KB | 12.00x more |
+
 
