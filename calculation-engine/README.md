@@ -64,8 +64,9 @@ AMD Ryzen 5 5600X, 1 CPU, 12 logical and 6 physical cores
 ```
 | Method                     | Size | Mean       | Error     | StdDev    | Ratio         | RatioSD | Rank | Gen0   | Gen1   | Allocated | Alloc Ratio |
 |--------------------------- |----- |-----------:|----------:|----------:|--------------:|--------:|-----:|-------:|-------:|----------:|------------:|
-| ManualVectorizedBaseline   | 8192 |   6.868 μs | 0.0672 μs | 0.0628 μs |      baseline |         |    1 | 0.7782 |      - |  64.02 KB |             |
-| PortableVectorizedBaseline | 8192 |   7.495 μs | 0.0328 μs | 0.0291 μs |  1.09x slower |   0.01x |    2 | 0.7782 |      - |  64.02 KB |  1.00x more |
-| ScalarBaseline             | 8192 |  12.848 μs | 0.0370 μs | 0.0328 μs |  1.87x slower |   0.02x |    3 | 0.7782 |      - |  64.02 KB |  1.00x more |
-| VectorizedEngine           | 8192 |  33.426 μs | 0.1825 μs | 0.1618 μs |  4.87x slower |   0.06x |    4 | 0.7324 |      - |   64.2 KB |  1.00x more |
-| ScalarEngine               | 8192 | 249.353 μs | 0.4735 μs | 0.3954 μs | 36.38x slower |   0.31x |    5 | 9.2773 | 1.9531 | 768.02 KB | 12.00x more |
+| ManualVectorizedBaseline   | 8192 |   6.814 μs | 0.0369 μs | 0.0308 μs |      baseline |         |    1 | 0.7782 |      - |  64.02 KB |             |
+| PortableVectorizedBaseline | 8192 |   7.710 μs | 0.0681 μs | 0.0604 μs |  1.13x slower |   0.01x |    2 | 0.7782 |      - |  64.02 KB |  1.00x more |
+| ScalarBaseline             | 8192 |  12.743 μs | 0.0220 μs | 0.0183 μs |  1.87x slower |   0.01x |    3 | 0.7782 |      - |  64.02 KB |  1.00x more |
+| VectorizedEngine           | 8192 |  27.272 μs | 0.0668 μs | 0.0592 μs |  4.00x slower |   0.02x |    4 | 0.7629 |      - |  64.02 KB |  1.00x more |
+| ScalarEngine               | 8192 | 249.168 μs | 1.8085 μs | 1.6032 μs | 36.58x slower |   0.27x |    5 | 9.2773 | 1.9531 | 768.02 KB | 12.00x more |
+

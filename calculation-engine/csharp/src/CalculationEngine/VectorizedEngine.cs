@@ -15,6 +15,7 @@ public readonly record struct VectorizedEngine
         _expression = expression;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private unsafe double[] Avx2Impl(double[][] input, int expectedCount)
     {
         Debug.Assert(Avx2.IsSupported);
@@ -23,7 +24,7 @@ public readonly record struct VectorizedEngine
 
         var lanes = Vector256<double>.Count;
 
-        var stack = new Stack<Vector256<double>>();
+        var stack = new StackStack<Vector256<double>>(stackalloc Vector256<double>[8]); // TODO hehe
 
         var expr = _expression._expression;
 
@@ -38,12 +39,12 @@ public readonly record struct VectorizedEngine
                 if (op is Operand)
                 {
                     var operand = Avx2.LoadVector256((double*)Unsafe.AsPointer(ref input[operandIndex++][j]));
-                    stack.Push(operand);
+                    stack.Push() = operand;
                 }
                 else if (op is Operator @operator)
                 {
-                    var right = stack.Pop();
-                    var left = stack.Pop();
+                    ref var right = ref stack.Pop();
+                    ref var left = ref stack.Pop();
 
                     Unsafe.SkipInit(out Vector256<double> result);
                     if (@operator == Operator.Add)
@@ -57,12 +58,12 @@ public readonly record struct VectorizedEngine
                     else
                         ThrowHelper.ThrowArgumentException("Invalid operator");
 
-                    stack.Push(result);
+                    stack.Push() = result;
                 }
             }
 
             Debug.Assert(stack.Count == 1);
-            var passResult = stack.Pop();
+            ref var passResult = ref stack.Pop();
             passResult.CopyTo(results, j);
 
             stack.Clear();
@@ -73,6 +74,7 @@ public readonly record struct VectorizedEngine
         return results;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private double[] PortableImpl(double[][] input, int expectedCount)
     {
         var results = new double[expectedCount];
@@ -131,13 +133,13 @@ public readonly record struct VectorizedEngine
     public double[] Evaluate(double[][] input)
     {
         if (input.Length != _expression._requiredInputCount)
-            throw new ArgumentException();
+            ThrowHelper.ThrowArgumentException("Need the same amount of input for all operands");
 
         var expectedCount = input[0].Length;
         for (int i = 1; i < input.Length; i++)
         {
             if (input[i].Length != expectedCount)
-                throw new ArgumentException("Need the same amount of input for all operands");
+                ThrowHelper.ThrowArgumentException("Need the same amount of input for all operands");
         }
 
         if (Avx2.IsSupported)
