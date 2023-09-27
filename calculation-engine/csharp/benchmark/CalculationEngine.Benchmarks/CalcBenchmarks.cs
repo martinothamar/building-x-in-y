@@ -1,16 +1,20 @@
 ﻿using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics.X86;
 
 namespace CalculationEngine.Benchmarks;
 
 [Config(typeof(Config))]
 public class CalcBenchmarks
 {
-    [Params(512)]
+    [Params(8192)]
     public int Size { get; set; }
 
     private double[][] _vectorInput;
     private double[] _scalarInput;
     private Expression _expression;
+    private ScalarEngine _scalarEngine;
+    private VectorizedEngine _vectorizedEngine;
 
     [GlobalSetup]
     public void Setup()
@@ -27,6 +31,8 @@ public class CalcBenchmarks
         };
 
         _expression = Expression.FromInfix(nodes);
+        _scalarEngine = _expression.ToScalarEngine();
+        _vectorizedEngine = _expression.ToVectorizedEngine();
 
         // 1 + (2 - 1)
         _vectorInput = new[]
@@ -45,7 +51,27 @@ public class CalcBenchmarks
     }
 
     [Benchmark(Baseline = true)]
-    public double[] VectorizedBaseline()
+    public double[] ManualVectorizedBaseline()
+    {
+        var results = new double[Size];
+        unsafe
+        {
+            for (int i = 0; i < Size; i += 4)
+            {
+                var a = Avx2.LoadVector256((double*)Unsafe.AsPointer(ref _vectorInput[0][i]));
+                var b = Avx2.LoadVector256((double*)Unsafe.AsPointer(ref _vectorInput[1][i]));
+                var c = Avx2.LoadVector256((double*)Unsafe.AsPointer(ref _vectorInput[2][i]));
+
+                var result = Avx2.Add(a, Avx2.Subtract(b, c));
+                Avx2.Store((double*)Unsafe.AsPointer(ref results[i]), result);
+            }
+        }
+
+        return results;
+    }
+
+    [Benchmark]
+    public double[] PortableVectorizedBaseline()
     {
         var results = new double[Size];
         var lanes = Vector<double>.Count;
@@ -80,10 +106,11 @@ public class CalcBenchmarks
     [Benchmark]
     public double[] ScalarEngine()
     {
+        var engine = _scalarEngine;
         var results = new double[Size];
         for (int i = 0; i < Size; i++)
         {
-            var result = _expression.Evaluate(_scalarInput);
+            var result = engine.Evaluate(_scalarInput);
             results[i] = result;
         }
 
@@ -91,7 +118,7 @@ public class CalcBenchmarks
     }
 
     [Benchmark]
-    public double[] VectorizedEngine() => _expression.Evaluate(_vectorInput);
+    public double[] VectorizedEngine() => _vectorizedEngine.Evaluate(_vectorInput);
 
     private class Config : ManualConfig
     {

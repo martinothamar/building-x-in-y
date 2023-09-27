@@ -3,7 +3,7 @@ namespace CalculationEngine.Tests;
 public class EngineTests
 {
     [Fact]
-    public void Simple()
+    public void Scalar()
     {
         // a + (b - c)
         var nodes = new Node[]
@@ -21,7 +21,8 @@ public class EngineTests
         Assert.NotNull(expression);
 
         // 1 + (2 - 1)
-        var result = expression.Evaluate(new[] { 1.0, 2.0, 1.0 });
+        var engine = expression.ToScalarEngine();
+        var result = engine.Evaluate(new[] { 1.0, 2.0, 1.0 });
         Assert.Equal(2, result);
     }
 
@@ -52,7 +53,8 @@ public class EngineTests
             Enumerable.Repeat(1.0, inputSize).ToArray(), // c
         };
         var expectedResult = Enumerable.Repeat(2.0, inputSize).ToArray();
-        var result = expression.Evaluate(input);
+        var engine = expression.ToVectorizedEngine();
+        var result = engine.Evaluate(input);
         Assert.Equal(expectedResult, result);
     }
 }

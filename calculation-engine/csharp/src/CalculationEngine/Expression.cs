@@ -1,15 +1,12 @@
-﻿using System.Diagnostics;
-using System.Numerics;
-
-namespace CalculationEngine;
+﻿namespace CalculationEngine;
 
 public sealed class Expression
 {
     private static readonly int _precmin;
     private static readonly int[] _precedence;
 
-    private readonly int _requiredInputCount;
-    private readonly List<Node> _expression;
+    internal readonly int _requiredInputCount;
+    internal readonly List<Node> _expression;
 
     private static int Prec(Node n) => n is Operator op ? _precedence[(int)op.Value - _precmin] : -1;
 
@@ -44,113 +41,14 @@ public sealed class Expression
         _requiredInputCount = requiredInputCount;
     }
 
-    public double Evaluate(double[] input)
-    {
-        if (input.Length != _requiredInputCount)
-            throw new ArgumentException();
+    public ScalarEngine ToScalarEngine() => new ScalarEngine(this);
 
-        var stack = new Stack<double>();
-
-        var operandIndex = 0;
-        for (int i = 0; i < _expression.Count; i++)
-        {
-            var op = _expression[i];
-
-            if (op is Operand)
-            {
-                stack.Push(input[operandIndex++]);
-            }
-            else if (op is Operator @operator)
-            {
-                var right = stack.Pop();
-                var left = stack.Pop();
-
-                double result;
-                if (@operator == Operator.Add)
-                    result = left + right;
-                else if (@operator == Operator.Sub)
-                    result = left - right;
-                else if (@operator == Operator.Mul)
-                    result = left * right;
-                else if (@operator == Operator.Div)
-                    result = left / right;
-                else
-                    throw new ArgumentException("Invalid operator");
-
-                stack.Push(result);
-            }
-        }
-
-        Debug.Assert(stack.Count == 1);
-        return stack.Pop();
-    }
-
-    public double[] Evaluate(double[][] input)
-    {
-        if (input.Length != _requiredInputCount)
-            throw new ArgumentException();
-
-        var expectedCount = input[0].Length;
-        for (int i = 1; i < input.Length; i++)
-        {
-            if (input[i].Length != expectedCount)
-                throw new ArgumentException("Need the same amount of input for all operands");
-        }
-
-        var results = new double[expectedCount];
-
-        var lanes = Vector<double>.Count;
-        var passes = expectedCount / lanes;
-
-        var stack = new Stack<Vector<double>>();
-
-        for (int j = 0; j < passes; j++)
-        {
-            var operandIndex = 0;
-
-            for (int i = 0; i < _expression.Count; i++)
-            {
-                var op = _expression[i];
-
-                if (op is Operand)
-                {
-                    stack.Push(new Vector<double>(input[operandIndex++], j * lanes));
-                }
-                else if (op is Operator @operator)
-                {
-                    var right = stack.Pop();
-                    var left = stack.Pop();
-
-                    Vector<double> result;
-                    if (@operator == Operator.Add)
-                        result = left + right;
-                    else if (@operator == Operator.Sub)
-                        result = left - right;
-                    else if (@operator == Operator.Mul)
-                        result = left * right;
-                    else if (@operator == Operator.Div)
-                        result = left / right;
-                    else
-                        throw new ArgumentException("Invalid operator");
-
-                    stack.Push(result);
-                }
-            }
-
-            Debug.Assert(stack.Count == 1);
-            var passResult = stack.Pop();
-            passResult.CopyTo(results, j * lanes);
-
-            stack.Clear();
-        }
-
-        return results;
-    }
+    public VectorizedEngine ToVectorizedEngine() => new VectorizedEngine(this);
 
     public static Expression FromInfix(IReadOnlyList<Node> expression)
     {
         if (expression is null || expression.Count == 0)
-            throw new ArgumentException("Expression is null or empty");
+            ThrowHelper.ThrowArgumentException("Invalid expression");
 
         var result = new List<Node>(expression.Count);
         var stack = new Stack<Node>();
@@ -169,7 +67,7 @@ public sealed class Expression
                     result.Add(stack.Pop());
 
                 if (stack.Count > 0 && stack.Peek() is not LeftParens)
-                    throw new ArgumentException("Invalid expression");
+                    ThrowHelper.ThrowArgumentException("Invalid expression");
 
                 stack.Pop();
             }
