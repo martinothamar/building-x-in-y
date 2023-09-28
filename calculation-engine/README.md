@@ -66,12 +66,9 @@ AMD Ryzen 5 5600X, 1 CPU, 12 logical and 6 physical cores
 ```
 | Method                     | Size | Mean       | Error     | StdDev    | Ratio         | RatioSD | Rank | Gen0    | Gen1    | Gen2    | Allocated | Alloc Ratio |
 |--------------------------- |----- |-----------:|----------:|----------:|--------------:|--------:|-----:|--------:|--------:|--------:|----------:|------------:|
-| ManualVectorizedBaseline   | 8192 |   6.798 μs | 0.0346 μs | 0.0270 μs |      baseline |         |    1 |  0.7782 |       - |       - |  64.02 KB |             |
-| PortableVectorizedBaseline | 8192 |   6.985 μs | 0.0187 μs | 0.0166 μs |  1.03x slower |   0.00x |    2 |  0.7782 |       - |       - |  64.02 KB |  1.00x more |
-| VectorizedEngine           | 8192 |  10.188 μs | 0.1071 μs | 0.1002 μs |  1.50x slower |   0.02x |    3 |  0.7782 |       - |       - |  64.02 KB |  1.00x more |
-| ScalarBaseline             | 8192 |  12.891 μs | 0.1985 μs | 0.1760 μs |  1.89x slower |   0.02x |    4 |  0.7782 |       - |       - |  64.02 KB |  1.00x more |
-| DataFrame                  | 8192 | 145.846 μs | 0.3727 μs | 0.3486 μs | 21.46x slower |   0.11x |    5 | 41.5039 | 41.5039 | 41.5039 | 261.89 KB |  4.09x more |
-| ScalarEngine               | 8192 | 244.308 μs | 0.6501 μs | 0.5763 μs | 35.95x slower |   0.14x |    6 |  9.2773 |  1.9531 |       - | 768.02 KB | 12.00x more |
-
-
-
+| ManualVectorizedBaseline   | 8192 |   6.730 μs | 0.0160 μs | 0.0142 μs |      baseline |         |    1 |  0.7782 |       - |       - |  64.02 KB |             |
+| PortableVectorizedBaseline | 8192 |   6.912 μs | 0.0274 μs | 0.0243 μs |  1.03x slower |   0.00x |    2 |  0.7782 |       - |       - |  64.02 KB |  1.00x more |
+| VectorizedEngine           | 8192 |  10.532 μs | 0.0328 μs | 0.0307 μs |  1.56x slower |   0.01x |    3 |  0.7782 |       - |       - |  64.02 KB |  1.00x more |
+| ScalarBaseline             | 8192 |  13.009 μs | 0.2534 μs | 0.2489 μs |  1.94x slower |   0.04x |    4 |  0.7782 |       - |       - |  64.02 KB |  1.00x more |
+| ScalarEngine               | 8192 |  98.613 μs | 0.0777 μs | 0.0727 μs | 14.65x slower |   0.03x |    5 |  0.7324 |       - |       - |  64.02 KB |  1.00x more |
+| DataFrame                  | 8192 | 148.230 μs | 0.3453 μs | 0.3061 μs | 22.02x slower |   0.08x |    6 | 41.5039 | 41.5039 | 41.5039 | 261.89 KB |  4.09x more |

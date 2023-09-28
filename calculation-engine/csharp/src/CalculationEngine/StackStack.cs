@@ -9,6 +9,8 @@ internal ref struct StackStack<T>
     private readonly Span<T> _data;
     private int _size;
 
+    private static int _maxSize = 0;
+
     public readonly int Count => _size;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -25,6 +27,10 @@ internal ref struct StackStack<T>
         var size = _size;
         ref var ptr = ref _data[size];
         _size = size + 1;
+
+        if (_size > _maxSize)
+            _maxSize = _size;
+
         return ref ptr;
     }
 

@@ -17,7 +17,10 @@ public readonly record struct ScalarEngine
         if (input.Length != _expression._requiredInputCount)
             throw new ArgumentException();
 
-        var stack = new Stack<double>();
+        const int MaxStackSize = 16;
+        var stack = new StackStack<double>(
+            input.Length > MaxStackSize ? new double[input.Length] : stackalloc double[MaxStackSize]
+        );
 
         var expr = _expression._expression;
 
@@ -28,12 +31,12 @@ public readonly record struct ScalarEngine
 
             if (op is Operand)
             {
-                stack.Push(input[operandIndex++]);
+                stack.Push() = input[operandIndex++];
             }
             else if (op is Operator @operator)
             {
-                var right = stack.Pop();
-                var left = stack.Pop();
+                ref var right = ref stack.Pop();
+                ref var left = ref stack.Pop();
 
                 Unsafe.SkipInit(out double result);
                 if (@operator == Operator.Add)
@@ -47,7 +50,7 @@ public readonly record struct ScalarEngine
                 else
                     ThrowHelper.ThrowArgumentException("Invalid operator");
 
-                stack.Push(result);
+                stack.Push() = result;
             }
         }
 

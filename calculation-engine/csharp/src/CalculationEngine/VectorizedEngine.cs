@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
@@ -24,7 +25,10 @@ public readonly record struct VectorizedEngine
 
         var lanes = Vector256<double>.Count;
 
-        var stack = new StackStack<int>(stackalloc int[8]); // TODO hehe
+        const int MaxStackSize = 32;
+        var stack = new StackStack<int>(
+            input.Length > MaxStackSize ? new int[input.Length] : stackalloc int[MaxStackSize]
+        );
 
         var expr = _expression._expression;
 
@@ -46,7 +50,8 @@ public readonly record struct VectorizedEngine
                 var leftCol = left < input.Length ? input[left] : results;
                 var rightCol = right < input.Length ? input[right] : results;
 
-                for (int j = 0; j < expectedCount; j += lanes)
+                int j = 0;
+                for (; j < expectedCount && expectedCount - j >= lanes; j += lanes)
                 {
                     var l = Avx2.LoadVector256((double*)Unsafe.AsPointer(ref leftCol[j]));
                     var r = Avx2.LoadVector256((double*)Unsafe.AsPointer(ref rightCol[j]));
@@ -65,6 +70,8 @@ public readonly record struct VectorizedEngine
                     Avx2.Store((double*)Unsafe.AsPointer(ref results[j]), result);
                 }
 
+                ScalarRemainder(j, expectedCount, @operator, leftCol, rightCol, results);
+
                 stack.Push() = input.Length;
             }
         }
@@ -72,8 +79,6 @@ public readonly record struct VectorizedEngine
         Debug.Assert(stack.Count == 1);
         ref var passResult = ref stack.Pop();
         Debug.Assert(passResult == input.Length);
-
-        // TODO - handle remainder
 
         return results;
     }
@@ -85,56 +90,65 @@ public readonly record struct VectorizedEngine
 
         var lanes = Vector<double>.Count;
 
-        var stack = new Stack<Vector<double>>();
+        const int MaxStackSize = 32;
+        var stack = new StackStack<int>(
+            input.Length > MaxStackSize ? new int[input.Length] : stackalloc int[MaxStackSize]
+        );
 
         var expr = _expression._expression;
 
-        for (int j = 0; j < expectedCount; j += lanes)
+        var operandIndex = 0;
+
+        for (int i = 0; i < expr.Count; i++)
         {
-            var operandIndex = 0;
+            var op = expr[i];
 
-            for (int i = 0; i < expr.Count; i++)
+            if (op is Operand)
             {
-                var op = expr[i];
-
-                if (op is Operand)
-                {
-                    stack.Push(new Vector<double>(input[operandIndex++], j));
-                }
-                else if (op is Operator @operator)
-                {
-                    var right = stack.Pop();
-                    var left = stack.Pop();
-
-                    Vector<double> result;
-                    if (@operator == Operator.Add)
-                        result = left + right;
-                    else if (@operator == Operator.Sub)
-                        result = left - right;
-                    else if (@operator == Operator.Mul)
-                        result = left * right;
-                    else if (@operator == Operator.Div)
-                        result = left / right;
-                    else
-                        throw new ArgumentException("Invalid operator");
-
-                    stack.Push(result);
-                }
+                stack.Push() = operandIndex++;
             }
+            else if (op is Operator @operator)
+            {
+                ref var right = ref stack.Pop();
+                ref var left = ref stack.Pop();
 
-            Debug.Assert(stack.Count == 1);
-            var passResult = stack.Pop();
-            passResult.CopyTo(results, j);
+                var leftCol = left < input.Length ? input[left] : results;
+                var rightCol = right < input.Length ? input[right] : results;
 
-            stack.Clear();
+                int j = 0;
+                for (; j < expectedCount && expectedCount - j >= lanes; j += lanes)
+                {
+                    var l = new Vector<double>(leftCol, j);
+                    var r = new Vector<double>(rightCol, j);
+                    Unsafe.SkipInit(out Vector<double> result);
+                    if (@operator == Operator.Add)
+                        result = l + r;
+                    else if (@operator == Operator.Sub)
+                        result = l - r;
+                    else if (@operator == Operator.Mul)
+                        result = l * r;
+                    else if (@operator == Operator.Div)
+                        result = l / r;
+                    else
+                        ThrowHelper.ThrowArgumentException("Invalid operator");
+
+                    result.CopyTo(results, j);
+                }
+
+                ScalarRemainder(j, expectedCount, @operator, leftCol, rightCol, results);
+
+                stack.Push() = input.Length;
+            }
         }
 
-        // TODO - handle remainder
+        Debug.Assert(stack.Count == 1);
+        ref var passResult = ref stack.Pop();
+        Debug.Assert(passResult == input.Length);
 
         return results;
     }
 
-    public double[] Evaluate(double[][] input)
+    public double[] Evaluate(double[][] input, bool preferPortable = false)
     {
         if (input.Length != _expression._requiredInputCount)
             ThrowHelper.ThrowArgumentException("Need the same amount of input for all operands");
@@ -146,13 +160,42 @@ public readonly record struct VectorizedEngine
                 ThrowHelper.ThrowArgumentException("Need the same amount of input for all operands");
         }
 
-        if (Avx2.IsSupported)
-        {
-            return Avx2Impl(input, expectedCount);
-        }
-        else
-        {
+        if (preferPortable)
             return PortableImpl(input, expectedCount);
+
+        if (Avx2.IsSupported)
+            return Avx2Impl(input, expectedCount);
+        else
+            return PortableImpl(input, expectedCount);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void ScalarRemainder(
+        int j,
+        int expectedCount,
+        Operator @operator,
+        double[] leftCol,
+        double[] rightCol,
+        double[] results
+    )
+    {
+        for (; j < expectedCount; j++)
+        {
+            var l = leftCol[j];
+            var r = rightCol[j];
+            Unsafe.SkipInit(out double result);
+            if (@operator == Operator.Add)
+                result = l + r;
+            else if (@operator == Operator.Sub)
+                result = l - r;
+            else if (@operator == Operator.Mul)
+                result = l * r;
+            else if (@operator == Operator.Div)
+                result = l / r;
+            else
+                ThrowHelper.ThrowArgumentException("Invalid operator");
+
+            results[j] = result;
         }
     }
 }
