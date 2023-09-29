@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "dsa/rust",
+    "calculation-engine/rust",
     "http-server/rust",
     "http-server/rust-baseline",
     "monte-carlo-sim/rust",

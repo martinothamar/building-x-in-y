@@ -1,0 +1,8 @@
+alias t := test
+alias b := bench
+
+test:
+  cargo test
+
+bench:
+  cargo bench
