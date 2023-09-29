@@ -17,10 +17,12 @@ public class CalcBenchmarks
     private DoubleDataFrameColumn _dataFrameA;
     private DoubleDataFrameColumn _dataFrameB;
     private DoubleDataFrameColumn _dataFrameC;
+    private DoubleDataFrameColumn _dataFrameResult;
     private DataFrame _dataFrame;
     private Expression _expression;
     private ScalarEngine _scalarEngine;
     private VectorizedEngine _vectorizedEngine;
+    private double[] _results;
 
     [GlobalSetup]
     public void Setup()
@@ -58,13 +60,16 @@ public class CalcBenchmarks
         _dataFrameA = new DoubleDataFrameColumn("a", _vectorInput[0]);
         _dataFrameB = new DoubleDataFrameColumn("b", _vectorInput[1]);
         _dataFrameC = new DoubleDataFrameColumn("c", _vectorInput[2]);
+        _dataFrameResult = new DoubleDataFrameColumn("result", new double[Size]);
         _dataFrame = new DataFrame(_dataFrameA, _dataFrameB, _dataFrameC);
+
+        _results = new double[Size];
     }
 
     [Benchmark(Baseline = true)]
     public double[] ManualVectorizedBaseline()
     {
-        var results = new double[Size];
+        var results = _results;
         unsafe
         {
             for (int i = 0; i < Size; i += 4)
@@ -84,7 +89,7 @@ public class CalcBenchmarks
     [Benchmark]
     public double[] PortableVectorizedBaseline()
     {
-        var results = new double[Size];
+        var results = _results;
         var lanes = Vector<double>.Count;
         for (int i = 0; i < Size; i += lanes)
         {
@@ -101,15 +106,20 @@ public class CalcBenchmarks
     [Benchmark]
     public IReadOnlyList<double?> DataFrame()
     {
-        // What is this shit...
-        var result = _dataFrameA + (_dataFrameB - _dataFrameC);
-        return result[0, Size];
+        // Dont know if this copy is efficient but... found no other way
+        var results = _dataFrameResult;
+        for (int i = 0; i < results.Length; i++)
+            results[i] = _dataFrameB[i];
+
+        results.Subtract(_dataFrameC, inPlace: true);
+        results.Add(_dataFrameA, inPlace: true);
+        return results[0, Size];
     }
 
     [Benchmark]
     public double[] ScalarBaseline()
     {
-        var results = new double[Size];
+        var results = _results;
         for (int i = 0; i < Size; i++)
         {
             var a = _vectorInput[0][i];
@@ -126,7 +136,7 @@ public class CalcBenchmarks
     public double[] ScalarEngine()
     {
         var engine = _scalarEngine;
-        var results = new double[Size];
+        var results = _results;
         for (int i = 0; i < Size; i++)
         {
             var result = engine.Evaluate(_scalarInput);
@@ -137,7 +147,12 @@ public class CalcBenchmarks
     }
 
     [Benchmark]
-    public double[] VectorizedEngine() => _vectorizedEngine.Evaluate(_vectorInput);
+    public double[] VectorizedEngine()
+    {
+        var results = _results;
+        _vectorizedEngine.Evaluate(_vectorInput, results);
+        return results;
+    }
 
     private class Config : ManualConfig
     {

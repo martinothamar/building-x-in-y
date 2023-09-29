@@ -17,11 +17,10 @@ public readonly record struct VectorizedEngine
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private unsafe double[] Avx2Impl(double[][] input, int expectedCount)
+    private unsafe void Avx2Impl(double[][] input, int expectedCount, double[] results)
     {
         Debug.Assert(Avx2.IsSupported);
-
-        var results = new double[expectedCount];
+        Debug.Assert(results.Length == expectedCount);
 
         var lanes = Vector256<double>.Count;
 
@@ -79,14 +78,12 @@ public readonly record struct VectorizedEngine
         Debug.Assert(stack.Count == 1);
         ref var passResult = ref stack.Pop();
         Debug.Assert(passResult == input.Length);
-
-        return results;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private double[] PortableImpl(double[][] input, int expectedCount)
+    private void PortableImpl(double[][] input, int expectedCount, double[] results)
     {
-        var results = new double[expectedCount];
+        Debug.Assert(results.Length == expectedCount);
 
         var lanes = Vector<double>.Count;
 
@@ -144,11 +141,9 @@ public readonly record struct VectorizedEngine
         Debug.Assert(stack.Count == 1);
         ref var passResult = ref stack.Pop();
         Debug.Assert(passResult == input.Length);
-
-        return results;
     }
 
-    public double[] Evaluate(double[][] input, bool preferPortable = false)
+    public void Evaluate(double[][] input, double[] results, bool preferPortable = false)
     {
         if (input.Length != _expression._requiredInputCount)
             ThrowHelper.ThrowArgumentException("Need the same amount of input for all operands");
@@ -161,12 +156,11 @@ public readonly record struct VectorizedEngine
         }
 
         if (preferPortable)
-            return PortableImpl(input, expectedCount);
-
-        if (Avx2.IsSupported)
-            return Avx2Impl(input, expectedCount);
+            PortableImpl(input, expectedCount, results);
+        else if (Avx2.IsSupported)
+            Avx2Impl(input, expectedCount, results);
         else
-            return PortableImpl(input, expectedCount);
+            PortableImpl(input, expectedCount, results);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

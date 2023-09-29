@@ -53,8 +53,10 @@ public class EngineTests
         };
         var expectedResult = Enumerable.Range(0, inputSize).Select(i => 2.0 + i).ToArray();
         var engine = expression.ToVectorizedEngine();
-        var result = engine.Evaluate(input);
-        Assert.Equal(expectedResult, result);
+        var results = new double[inputSize];
+        Assert.NotEqual(expectedResult, results);
+        engine.Evaluate(input, results);
+        Assert.Equal(expectedResult, results);
     }
 
     [Theory]
@@ -82,7 +84,9 @@ public class EngineTests
         };
         var expectedResult = Enumerable.Range(0, inputSize).Select(i => 2.0 + i).ToArray();
         var engine = expression.ToVectorizedEngine();
-        var result = engine.Evaluate(input, preferPortable: true);
-        Assert.Equal(expectedResult, result);
+        var results = new double[inputSize];
+        Assert.NotEqual(expectedResult, results);
+        engine.Evaluate(input, results);
+        Assert.Equal(expectedResult, results);
     }
 }

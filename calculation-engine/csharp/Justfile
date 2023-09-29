@@ -1,0 +1,8 @@
+alias t := test
+alias b := bench
+
+test:
+  dotnet test
+
+bench:
+  dotnet run -c Release --project benchmark/CalculationEngine.Benchmarks/
