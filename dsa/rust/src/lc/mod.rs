@@ -4,6 +4,7 @@ mod container_with_most_water;
 mod contains_duplicate;
 mod group_anagrams;
 mod longest_consecutive_sequence;
+mod min_stack;
 mod product_of_array_except_self;
 mod three_sum;
 mod top_k_frequent_elements;
