@@ -1,0 +1,4 @@
+test1:
+  cargo build
+  ../../../maelstrom/maelstrom test -w echo --bin ../../target/debug/distsys -- node-count 1 --time-limit 10
+

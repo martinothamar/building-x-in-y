@@ -462,3 +462,5 @@ flamegraph.svg
 !monte-carlo-sim/*/flamegraph.svg
 
 todos.db*
+
+flyio-distsys/**/store/
