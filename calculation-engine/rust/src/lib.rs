@@ -1,5 +1,7 @@
 #![feature(lazy_cell)]
 #![feature(let_chains)]
+#![feature(portable_simd)]
+#![feature(iter_repeat_n)]
 
 use thiserror::Error;
 
@@ -76,6 +78,10 @@ impl Expression {
     pub fn to_scalar_engine(self) -> engine::scalar::Engine {
         engine::scalar::Engine::new(self)
     }
+
+    pub fn to_vectorized_engine(self) -> engine::vectorized::Engine {
+        engine::vectorized::Engine::new(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,22 +89,16 @@ pub enum Node {
     Operand,
     LeftParens,
     RightParens,
-    Operator(char),
+    Operator(Operator),
 }
 
-impl Node {
-    pub const fn add_op() -> Node {
-        Node::Operator('+')
-    }
-    pub const fn sub_op() -> Node {
-        Node::Operator('-')
-    }
-    pub const fn mul_op() -> Node {
-        Node::Operator('*')
-    }
-    pub const fn div_op() -> Node {
-        Node::Operator('/')
-    }
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum Operator {
+    Add = b'+',
+    Sub = b'-',
+    Mul = b'*',
+    Div = b'/',
 }
 
 #[cfg(test)]
@@ -108,10 +108,10 @@ mod tests {
     fn get_simple_expression_nodes() -> Vec<Node> {
         vec![
             Node::Operand,
-            Node::add_op(),
+            Node::Operator(Operator::Add),
             Node::LeftParens,
             Node::Operand,
-            Node::sub_op(),
+            Node::Operator(Operator::Sub),
             Node::Operand,
             Node::RightParens,
         ]
@@ -152,5 +152,29 @@ mod tests {
         assert!(result.is_ok());
         let result = result.unwrap();
         assert_eq!(result, 2.0);
+    }
+
+    #[test]
+    fn vectorized() {
+        use std::iter::repeat_n;
+
+        let nodes = get_simple_expression_nodes();
+
+        let expression = Expression::from_infix(&nodes);
+        assert!(expression.is_ok());
+        let expression = expression.unwrap();
+
+        let engine = expression.to_vectorized_engine();
+        let input = [
+            repeat_n(1.0, 16).collect::<Vec<_>>(),
+            repeat_n(2.0, 16).collect::<Vec<_>>(),
+            repeat_n(1.0, 16).collect::<Vec<_>>(),
+        ];
+        let input = input.iter().map(|v| &v[..]).collect::<Vec<_>>();
+        let mut output = vec![0.0; 16];
+        let expected = repeat_n(2.0, 16).collect::<Vec<_>>();
+        let result = engine.evaluate(&input, &mut output);
+        assert!(result.is_ok());
+        assert_eq!(output, expected);
     }
 }
