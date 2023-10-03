@@ -1,12 +1,17 @@
-use std::{error::Error, pin::Pin};
+use std::error::Error;
 
-use async_stream::stream;
-use serde::{Deserialize, Serialize};
+use protocol::Protocol;
+use request::{NodeId, Request};
+use response::Response;
 use tokio::{
-    io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
+    io::{self, AsyncWriteExt, BufWriter},
     runtime,
 };
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::StreamExt;
+
+mod protocol;
+mod request;
+mod response;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let rt = runtime::Builder::new_current_thread().enable_all().build()?;
@@ -14,123 +19,51 @@ fn main() -> Result<(), Box<dyn Error>> {
     rt.block_on(async {
         let mut logger = Logger::new();
 
-        logger.log("Starting!\n").await;
+        let mut current_node_id = NodeId::new();
+        logger.log(format!("[{}] Starting!\n", &current_node_id)).await;
 
-        let proto = Protocol::new();
+        let (receiver, mut sender) = Protocol::new().split();
 
-        let mut stream = proto.stream();
+        let mut stream = receiver.recv_stream();
         while let Some(result) = stream.next().await {
             match result {
                 Ok(msg) => {
                     // Handle message
-                    logger.log(format!("Got message: {:?}\n", &msg)).await;
+                    logger
+                        .log(format!("[{}] Got message: {:?}\n", &current_node_id, &msg))
+                        .await;
 
-                    let response = match msg.body {
-                        Request::Init {
-                            msg_id,
-                            node_id,
-                            node_ids,
-                        } => Some(Response::InitOk { in_reply_to: msg_id }),
-                        Request::Read { msg_id, key } => None,
+                    let response = match &msg.body {
+                        Request::Init { msg_id, node_id, .. } => {
+                            current_node_id.init(node_id);
+                            Some(Response::InitOk {
+                                msg_id: sender.get_next_msg_id(),
+                                in_reply_to: *msg_id,
+                            })
+                        }
+                        Request::Echo { msg_id, echo } => Some(Response::EchoOk {
+                            msg_id: sender.get_next_msg_id(),
+                            in_reply_to: *msg_id,
+                            echo: echo.clone(),
+                        }),
+                        Request::Read { .. } => todo!(),
                     };
+
+                    if let Some(body) = response {
+                        match sender.send(msg.to_response(body)).await {
+                            Ok(_) => {}
+                            Err(e) => logger.log(format!("[{}] Error: {}\n", &current_node_id, e)).await,
+                        };
+                    }
                 }
-                Err(e) => logger.log(format!("Error: {}\n", e)).await,
+                Err(e) => logger.log(format!("[{}] Error: {}\n", &current_node_id, e)).await,
             }
         }
 
-        logger.log("Exiting...\n").await;
+        logger.log(format!("[{}] Exiting...\n", &current_node_id)).await;
     });
 
     Ok(())
-}
-
-struct Protocol {
-    inner: BufReader<io::Stdin>,
-    buffer: Vec<u8>,
-}
-
-impl Protocol {
-    fn new() -> Self {
-        let stdin = io::stdin();
-        Self {
-            inner: BufReader::with_capacity(1024 * 8, stdin),
-            buffer: Vec::with_capacity(1024 * 8),
-        }
-    }
-
-    fn stream(mut self) -> Pin<Box<impl Stream<Item = Result<RequestEnvelope, std::io::Error>>>> {
-        Box::pin(stream! {
-            loop {
-                let result = self.inner.read_until(b'\n', &mut self.buffer).await;
-                match result {
-                    Ok(read) => {
-                        // {"id":4,"src":"c4","dest":"n1","body":{"type":"init","node_id":"n1","node_ids":["n1","n2","n3","n4","n5"],"msg_id":1}}
-                        let msg: RequestEnvelope = serde_json::from_slice(&self.buffer[..read])?;
-                        yield Ok(msg);
-                    }
-                    Err(e) => yield Err(e),
-                }
-
-                self.buffer.clear();
-            }
-        })
-    }
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct RequestEnvelope {
-    src: String,
-    dest: String,
-    body: Request,
-}
-
-impl RequestEnvelope {
-    fn to_response(self, body: Response) -> ResponseEnvelope {
-        ResponseEnvelope {
-            src: self.dest,
-            dest: self.src,
-            body,
-        }
-    }
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum Request {
-    Init {
-        msg_id: usize,
-        node_id: String,
-        node_ids: Vec<String>,
-    },
-    Read {
-        msg_id: usize,
-        key: usize,
-    },
-}
-
-#[derive(Serialize, Debug, Clone)]
-struct ResponseEnvelope {
-    src: String,
-    dest: String,
-    body: Response,
-}
-
-#[derive(Serialize, Debug, Clone)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum Response {
-    InitOk {
-        in_reply_to: usize,
-    },
-    ReadOk {
-        msg_id: usize,
-        in_reply_to: usize,
-        value: usize,
-    },
-    Error {
-        in_reply_to: usize,
-        code: usize,
-        text: String,
-    },
 }
 
 struct Logger {
