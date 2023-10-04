@@ -18,7 +18,8 @@
         "time.h": "c",
         "unistd.h": "c",
         "string.h": "c",
-        "random": "c"
+        "random": "c",
+        "Justfile": "plaintext"
     },
     "rust-analyzer.checkOnSave": true,
     "rust-analyzer.check.command": "clippy",
