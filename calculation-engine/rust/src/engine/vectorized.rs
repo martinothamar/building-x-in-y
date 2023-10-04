@@ -111,6 +111,7 @@ impl Engine {
         }
 
         assert!(stack.len() == 1);
+        assert!(stack.pop().unwrap() == input.len());
 
         Ok(())
     }
