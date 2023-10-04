@@ -5,7 +5,10 @@ edition = "2021"
 
 [dependencies]
 async-stream = "0.3.5"
+mimalloc = "0.1.39"
+rand = { version = "0.8.5", features = ["small_rng"] }
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
 tokio = { version = "1.32.0", features = ["full"] }
 tokio-stream = "0.1.14"
+ulid = { version = "1.1.0", features = ["std", "serde", "uuid"] }

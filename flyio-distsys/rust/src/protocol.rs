@@ -32,7 +32,6 @@ impl Protocol {
             ProtocolWriter {
                 outgoing: self.outgoing,
                 buffer: Vec::with_capacity(Self::BUF_SIZE),
-                next_msg_id: 0,
             },
         )
     }
@@ -65,7 +64,6 @@ impl ProtocolReader {
 pub struct ProtocolWriter {
     outgoing: BufWriter<io::Stdout>,
     buffer: Vec<u8>,
-    next_msg_id: usize,
 }
 
 impl ProtocolWriter {
@@ -76,11 +74,5 @@ impl ProtocolWriter {
         self.outgoing.write_all(&self.buffer).await?;
         self.outgoing.flush().await?;
         Ok(())
-    }
-
-    pub fn get_next_msg_id(&mut self) -> usize {
-        let id = self.next_msg_id;
-        self.next_msg_id += 1;
-        id
     }
 }

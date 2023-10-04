@@ -1,6 +1,11 @@
-test1:
-  cargo build
-  ../../../maelstrom/maelstrom test -w echo --bin ../../target/debug/distsys -- node-count 1 --time-limit 10
+build:
+  cargo build --release
+
+test-echo: build
+  ../../../maelstrom/maelstrom test -w echo --bin ../../target/release/distsys -- node-count 1 --time-limit 10
+
+test-unique-ids: build
+  ../../../maelstrom/maelstrom test -w unique-ids --bin ../../target/release/distsys --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
 
 serve:
   ../../../maelstrom/maelstrom serve
