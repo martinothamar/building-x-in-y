@@ -1,6 +1,26 @@
 use serde::Serialize;
 use ulid::serde::ulid_as_uuid;
 
+use crate::request::RequestMetadata;
+
+pub struct ResponseBuilder {
+    pub request: RequestMetadata,
+}
+
+impl ResponseBuilder {
+    pub fn new(request: RequestMetadata) -> Self {
+        Self { request }
+    }
+
+    pub fn build(self, body: Response) -> ResponseEnvelope {
+        ResponseEnvelope {
+            src: self.request.dest,
+            dest: self.request.src,
+            body,
+        }
+    }
+}
+
 #[derive(Serialize, Debug, Clone)]
 pub struct ResponseEnvelope {
     pub src: String,
@@ -27,14 +47,17 @@ pub enum Response {
         #[serde(with = "ulid_as_uuid")]
         id: ulid::Ulid,
     },
-    // ReadOk {
-    //     msg_id: usize,
-    //     in_reply_to: usize,
-    //     value: usize,
-    // },
-    // Error {
-    //     in_reply_to: usize,
-    //     code: usize,
-    //     text: String,
-    // },
+    TopologyOk {
+        msg_id: u64,
+        in_reply_to: u64,
+    },
+    BroadcastOk {
+        msg_id: u64,
+        in_reply_to: u64,
+    },
+    ReadOk {
+        msg_id: u64,
+        in_reply_to: u64,
+        messages: Vec<i64>,
+    },
 }

@@ -1,4 +1,4 @@
-use std::{fmt::Display, time::SystemTime};
+use std::{collections::HashMap, fmt::Display, time::SystemTime};
 
 use rand::SeedableRng;
 
@@ -10,10 +10,10 @@ impl NodeId {
         Self(None, None)
     }
 
-    fn init(&mut self, id: &str) {
+    fn init(&mut self, id: String) {
         assert!(id.starts_with('n'));
         let num = id[1..].parse::<u16>().expect("ID should be of format 'n<number>'");
-        self.0 = Some(id.to_string());
+        self.0 = Some(id);
         self.1 = Some(num);
     }
 }
@@ -32,6 +32,8 @@ pub struct Node {
     next_msg_id: u64,
     unique_id_generator: ulid::Generator,
     prng: rand::rngs::SmallRng,
+    topology: HashMap<String, Vec<String>>,
+    messages: rustc_hash::FxHashSet<i64>,
 }
 
 impl Node {
@@ -41,15 +43,21 @@ impl Node {
             next_msg_id: 0,
             unique_id_generator: ulid::Generator::new(),
             prng: rand::rngs::SmallRng::from_entropy(),
+            topology: HashMap::with_capacity(4),
+            messages: rustc_hash::FxHashSet::default(),
         }
     }
 
-    pub fn init(&mut self, id: &str) {
+    pub fn init(&mut self, id: String) {
         self.id.init(id);
     }
 
     pub fn id(&self) -> &NodeId {
         &self.id
+    }
+
+    pub fn set_topology(&mut self, topology: HashMap<String, Vec<String>>) {
+        self.topology = topology;
     }
 
     #[inline]
@@ -65,5 +73,15 @@ impl Node {
         self.unique_id_generator
             .generate_from_datetime_with_source(now, &mut self.prng)
             .expect("Random bits should not overflow - TODO test")
+    }
+
+    #[inline]
+    pub fn add_message(&mut self, message: i64) {
+        self.messages.insert(message);
+    }
+
+    #[inline]
+    pub fn get_messages(&self) -> Vec<i64> {
+        self.messages.iter().cloned().collect()
     }
 }

@@ -1,6 +1,6 @@
-use serde::Deserialize;
+use std::collections::HashMap;
 
-use crate::response::{Response, ResponseEnvelope};
+use serde::Deserialize;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct RequestEnvelope {
@@ -9,14 +9,20 @@ pub struct RequestEnvelope {
     pub body: Request,
 }
 
+pub struct RequestMetadata {
+    pub src: String,
+    pub dest: String,
+}
+
 impl RequestEnvelope {
-    #[allow(clippy::wrong_self_convention)]
-    pub fn to_response(self, body: Response) -> ResponseEnvelope {
-        ResponseEnvelope {
-            src: self.dest,
-            dest: self.src,
-            body,
-        }
+    pub fn split(self) -> (RequestMetadata, Request) {
+        (
+            RequestMetadata {
+                src: self.src,
+                dest: self.dest,
+            },
+            self.body,
+        )
     }
 }
 
@@ -33,6 +39,17 @@ pub enum Request {
         echo: String,
     },
     Generate {
+        msg_id: u64,
+    },
+    Topology {
+        msg_id: u64,
+        topology: HashMap<String, Vec<String>>,
+    },
+    Broadcast {
+        msg_id: u64,
+        message: i64,
+    },
+    Read {
         msg_id: u64,
     },
 }

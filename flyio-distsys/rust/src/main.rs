@@ -5,7 +5,7 @@ use mimalloc::MiMalloc;
 use node::Node;
 use protocol::{Protocol, ProtocolWriter};
 use request::{Request, RequestEnvelope};
-use response::Response;
+use response::{Response, ResponseBuilder};
 use tokio::runtime;
 use tokio_stream::StreamExt;
 
@@ -21,9 +21,9 @@ mod response;
 const DEBUG: bool = false;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let rt = runtime::Builder::new_current_thread().enable_all().build()?;
+    let runtime = runtime::Builder::new_current_thread().enable_all().build()?;
 
-    rt.block_on(async {
+    runtime.block_on(async {
         let mut logger = Logger::new();
 
         let mut node = Node::new();
@@ -51,28 +51,49 @@ async fn handle_message(msg: RequestEnvelope, node: &mut Node, logger: &mut Logg
         logger.log(format!("[{}] Got message: {:?}\n", node.id(), &msg)).await;
     }
 
-    let response = match &msg.body {
+    let (metadata, request) = msg.split();
+    let response_builder = ResponseBuilder::new(metadata);
+    let response_body = match request {
         Request::Init { msg_id, node_id, .. } => {
             node.init(node_id);
             Some(Response::InitOk {
                 msg_id: node.get_next_msg_id(),
-                in_reply_to: *msg_id,
+                in_reply_to: msg_id,
             })
         }
         Request::Echo { msg_id, echo } => Some(Response::EchoOk {
             msg_id: node.get_next_msg_id(),
-            in_reply_to: *msg_id,
+            in_reply_to: msg_id,
             echo: echo.clone(),
         }),
         Request::Generate { msg_id } => Some(Response::GenerateOk {
             msg_id: node.get_next_msg_id(),
-            in_reply_to: *msg_id,
+            in_reply_to: msg_id,
             id: node.generate_unique_id(),
+        }),
+        Request::Topology { msg_id, topology } => {
+            node.set_topology(topology);
+            Some(Response::TopologyOk {
+                msg_id: node.get_next_msg_id(),
+                in_reply_to: msg_id,
+            })
+        }
+        Request::Broadcast { msg_id, message } => {
+            node.add_message(message);
+            Some(Response::BroadcastOk {
+                msg_id: node.get_next_msg_id(),
+                in_reply_to: msg_id,
+            })
+        }
+        Request::Read { msg_id } => Some(Response::ReadOk {
+            msg_id: node.get_next_msg_id(),
+            in_reply_to: msg_id,
+            messages: node.get_messages(),
         }),
     };
 
-    if let Some(body) = response {
-        match sender.send(msg.to_response(body)).await {
+    if let Some(body) = response_body {
+        match sender.send(response_builder.build(body)).await {
             Ok(_) => {}
             Err(e) => logger.log(format!("[{}] Error: {}\n", node.id(), e)).await,
         };
