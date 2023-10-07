@@ -49,6 +49,10 @@ pub enum Request {
         msg_id: u64,
         message: i64,
     },
+    BroadcastOk {
+        msg_id: u64,
+        in_reply_to: u64,
+    },
     Read {
         msg_id: u64,
     },

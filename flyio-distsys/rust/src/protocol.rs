@@ -67,10 +67,13 @@ pub struct ProtocolWriter {
 }
 
 impl ProtocolWriter {
-    pub async fn send(&mut self, response: ResponseEnvelope) -> Result<(), Box<dyn Error>> {
+    pub async fn send(&mut self, responses: &[ResponseEnvelope]) -> Result<(), Box<dyn Error>> {
         self.buffer.clear();
-        serde_json::to_writer(&mut self.buffer, &response)?;
-        self.buffer.push(b'\n');
+
+        for response in responses {
+            serde_json::to_writer(&mut self.buffer, response)?;
+            self.buffer.push(b'\n');
+        }
         self.outgoing.write_all(&self.buffer).await?;
         self.outgoing.flush().await?;
         Ok(())

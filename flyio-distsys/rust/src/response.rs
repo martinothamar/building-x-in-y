@@ -55,6 +55,10 @@ pub enum Response {
         msg_id: u64,
         in_reply_to: u64,
     },
+    Broadcast {
+        msg_id: u64,
+        message: i64,
+    },
     ReadOk {
         msg_id: u64,
         in_reply_to: u64,

@@ -7,8 +7,11 @@ test-echo: build
 test-unique-ids: build
   ../../../maelstrom/maelstrom test -w unique-ids --bin ../../target/release/distsys --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
 
-test-broadcast: build
+test-single-broadcast: build
   ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/distsys --node-count 1 --time-limit 20 --rate 10
+
+test-multi-broadcast: build
+  ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/distsys --node-count 5 --time-limit 20 --rate 10
 
 serve:
   ../../../maelstrom/maelstrom serve

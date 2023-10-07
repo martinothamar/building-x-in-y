@@ -32,7 +32,6 @@ pub struct Node {
     next_msg_id: u64,
     unique_id_generator: ulid::Generator,
     prng: rand::rngs::SmallRng,
-    topology: HashMap<String, Vec<String>>,
     messages: rustc_hash::FxHashSet<i64>,
 }
 
@@ -43,7 +42,6 @@ impl Node {
             next_msg_id: 0,
             unique_id_generator: ulid::Generator::new(),
             prng: rand::rngs::SmallRng::from_entropy(),
-            topology: HashMap::with_capacity(4),
             messages: rustc_hash::FxHashSet::default(),
         }
     }
@@ -56,8 +54,8 @@ impl Node {
         &self.id
     }
 
-    pub fn set_topology(&mut self, topology: HashMap<String, Vec<String>>) {
-        self.topology = topology;
+    pub fn id_str(&self) -> &str {
+        self.id.0.as_ref().unwrap()
     }
 
     #[inline]
@@ -76,12 +74,53 @@ impl Node {
     }
 
     #[inline]
-    pub fn add_message(&mut self, message: i64) {
-        self.messages.insert(message);
+    pub fn add_message(&mut self, message: i64) -> bool {
+        self.messages.insert(message)
     }
 
     #[inline]
     pub fn get_messages(&self) -> Vec<i64> {
         self.messages.iter().cloned().collect()
+    }
+}
+
+pub struct Topology {
+    id: NodeId,
+    topology: HashMap<String, Vec<String>>,
+    neighbors: Vec<String>,
+}
+
+impl Topology {
+    pub fn new() -> Self {
+        Self {
+            id: NodeId::new(),
+            topology: HashMap::new(),
+            neighbors: Vec::new(),
+        }
+    }
+
+    pub fn init(&mut self, id: String) {
+        self.id.init(id);
+    }
+
+    pub fn init_topology(&mut self, topology: HashMap<String, Vec<String>>) {
+        self.neighbors = match topology.get(&self.id.0.clone().unwrap()) {
+            Some(n) => n.clone(),
+            None => Vec::new(),
+        };
+        self.topology = topology;
+    }
+
+    #[inline]
+    pub fn get_my_neighbors(&self) -> &[String] {
+        &self.neighbors
+    }
+
+    #[inline]
+    pub fn get_neighbors(&self, node_id: &str) -> &[String] {
+        match self.topology.get(node_id) {
+            Some(neighbors) => neighbors,
+            None => &[],
+        }
     }
 }
