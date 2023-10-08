@@ -1,12 +1,15 @@
 #![feature(hash_raw_entry)]
 
-use std::error::Error;
+use std::{
+    error::Error,
+    time::{Duration, SystemTime},
+};
 
 use logger::Logger;
 use message::{Message, MessageEnvelope, MessageReplyBuilder};
 use mimalloc::MiMalloc;
 use node::{Node, Topology};
-use tokio::runtime;
+use tokio::{runtime, time};
 use tokio_stream::StreamExt;
 use transport::{Transport, TransportWriter};
 
@@ -39,10 +42,40 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
 
         let mut stream = receiver.recv_stream();
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(msg) => handle_message(msg, &mut ctx).await,
-                Err(e) => ctx.logger.log(format!("[{}] Error: {}\n", ctx.node.id(), e)).await,
+        let mut gossip_timer = time::interval(Duration::from_millis(100));
+
+        loop {
+            tokio::select! {
+                _ = gossip_timer.tick() => {
+                    let now = SystemTime::now();
+                    let retry_messages = ctx.node.get_retryable_messages(now);
+                    if !retry_messages.is_empty() {
+                        let mut messages = Vec::new();
+                        for (_, message, neighbor) in retry_messages {
+                            let msg_id = ctx.node.get_next_msg_id();
+                            messages.push(MessageEnvelope {
+                                src: ctx.node.id_str().to_string(),
+                                dest: neighbor.to_string(),
+                                body: Message::Broadcast { msg_id, message },
+                            });
+                        }
+
+                        if DEBUG {
+                            ctx.logger.log(format!("[{}] Retrying messages: {}\n", ctx.node.id(), messages.len())).await;
+                        }
+                        send(&messages, &mut ctx).await;
+                    }
+                }
+                result = stream.next() => {
+                    let Some(result) = result else {
+                        ctx.logger.log(format!("[{}] End of messages\n", ctx.node.id())).await;
+                        break;
+                    };
+                    match result {
+                        Ok(msg) => handle_message(msg, &mut ctx).await,
+                        Err(e) => ctx.logger.log(format!("[{}] Error: {}\n", ctx.node.id(), e)).await,
+                    };
+                }
             }
         }
 
@@ -169,15 +202,29 @@ async fn handle_message(msg: MessageEnvelope, ctx: &mut NodeContext) {
                         continue;
                     }
 
+                    let now = SystemTime::now();
                     for message in messages_to_broadcast {
+                        if node.message_is_pending(message, neighbor) {
+                            if DEBUG {
+                                logger
+                                    .log(format!(
+                                        "[{}] skipped neighbor - this message is pending: {:?} {:?}\n",
+                                        node.id(),
+                                        neighbor,
+                                        &message
+                                    ))
+                                    .await;
+                            }
+                            continue;
+                        }
+
+                        let msg_id = node.get_next_msg_id();
                         messages.push(MessageEnvelope {
                             src: node.id_str().to_string(),
                             dest: neighbor.to_string(),
-                            body: Message::Broadcast {
-                                msg_id: node.get_next_msg_id(),
-                                message,
-                            },
+                            body: Message::Broadcast { msg_id, message },
                         });
+                        node.add_pending_message(msg_id, message, now, neighbor);
                     }
                 }
                 send(&messages, ctx).await;
@@ -189,7 +236,11 @@ async fn handle_message(msg: MessageEnvelope, ctx: &mut NodeContext) {
                 reply(response_builder, response, ctx).await;
             }
         }
-        Message::BroadcastOk { .. } => {}
+        Message::BroadcastOk { in_reply_to, .. } => {
+            if let Some((_, message, node_id)) = node.try_take_pending_message(in_reply_to) {
+                node.node_acked_message(message, &node_id);
+            }
+        }
         Message::Read { msg_id } => {
             let response = Message::ReadOk {
                 msg_id: node.get_next_msg_id(),

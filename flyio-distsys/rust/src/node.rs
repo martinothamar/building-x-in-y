@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     time::SystemTime,
 };
@@ -38,6 +38,8 @@ pub struct Node {
     prng: rand::rngs::SmallRng,
     messages: BTreeSet<u64>,
     messages_by_node: HashMap<String, BTreeSet<u64>>,
+    messages_pending: HashMap<u64, (SystemTime, u64, String)>,
+    messages_pending_by_value: HashSet<(u64, String)>,
 }
 
 impl Node {
@@ -49,6 +51,9 @@ impl Node {
             prng: rand::rngs::SmallRng::from_entropy(),
             messages: BTreeSet::new(),
             messages_by_node: HashMap::new(),
+            // Consider "bidi" map
+            messages_pending: HashMap::new(),
+            messages_pending_by_value: HashSet::new(),
         }
     }
 
@@ -96,6 +101,20 @@ impl Node {
     }
 
     #[inline]
+    pub fn node_acked_message(&mut self, message: u64, node: &str) {
+        assert!(node.starts_with('n'));
+        self.messages_by_node
+            .raw_entry_mut()
+            .from_key(node)
+            .and_modify(|_, set| _ = set.insert(message))
+            .or_insert_with(|| {
+                let mut set = BTreeSet::new();
+                set.insert(message);
+                (node.to_string(), set)
+            });
+    }
+
+    #[inline]
     pub fn get_messages(&self) -> Vec<u64> {
         self.messages.iter().cloned().collect()
     }
@@ -107,6 +126,45 @@ impl Node {
             Some(set) => self.messages.difference(set).copied().collect(),
             None => self.messages.iter().copied().collect(),
         }
+    }
+
+    #[inline]
+    pub fn add_pending_message(&mut self, msg_id: u64, message: u64, timestamp: SystemTime, node: &str) {
+        assert!(self
+            .messages_pending
+            .insert(msg_id, (timestamp, message, node.to_string()))
+            .is_none());
+
+        self.messages_pending_by_value.insert((message, node.to_string()));
+    }
+
+    #[inline]
+    pub fn message_is_pending(&self, message: u64, node: &str) -> bool {
+        self.messages_pending_by_value.contains(&(message, node.to_string()))
+    }
+
+    #[inline]
+    pub fn try_take_pending_message(&mut self, msg_id: u64) -> Option<(SystemTime, u64, String)> {
+        let msg = self.messages_pending.remove(&msg_id);
+        if let Some((_, message, node)) = &msg {
+            assert!(self.messages_pending_by_value.remove(&(*message, node.clone())));
+        }
+        msg
+    }
+
+    #[inline]
+    pub fn get_retryable_messages(&self, now: SystemTime) -> Vec<(SystemTime, u64, String)> {
+        self.messages_pending
+            .iter()
+            .filter(|&(_, (timestamp, _, _))| {
+                let duration = now
+                    .duration_since(*timestamp)
+                    .expect("clock should always move forwards");
+                duration.as_secs_f64() > 0.1
+            })
+            .map(|(_, v)| v)
+            .cloned()
+            .collect()
     }
 }
 
