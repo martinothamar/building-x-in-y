@@ -6,12 +6,12 @@ use tokio_stream::Stream;
 
 use crate::{request::RequestEnvelope, response::ResponseEnvelope};
 
-pub struct Protocol {
+pub struct Transport {
     incoming: BufReader<io::Stdin>,
     outgoing: BufWriter<io::Stdout>,
 }
 
-impl Protocol {
+impl Transport {
     const BUF_SIZE: usize = 1024 * 8;
 
     pub fn new() -> Self {
@@ -23,13 +23,13 @@ impl Protocol {
         }
     }
 
-    pub fn split(self) -> (ProtocolReader, ProtocolWriter) {
+    pub fn split(self) -> (TransportReader, TransportWriter) {
         (
-            ProtocolReader {
+            TransportReader {
                 incoming: self.incoming,
                 buffer: Vec::with_capacity(Self::BUF_SIZE),
             },
-            ProtocolWriter {
+            TransportWriter {
                 outgoing: self.outgoing,
                 buffer: Vec::with_capacity(Self::BUF_SIZE),
             },
@@ -37,12 +37,12 @@ impl Protocol {
     }
 }
 
-pub struct ProtocolReader {
+pub struct TransportReader {
     incoming: BufReader<io::Stdin>,
     buffer: Vec<u8>,
 }
 
-impl ProtocolReader {
+impl TransportReader {
     pub fn recv_stream(mut self) -> Pin<Box<impl Stream<Item = Result<RequestEnvelope, std::io::Error>>>> {
         Box::pin(stream! {
             loop {
@@ -61,12 +61,12 @@ impl ProtocolReader {
     }
 }
 
-pub struct ProtocolWriter {
+pub struct TransportWriter {
     outgoing: BufWriter<io::Stdout>,
     buffer: Vec<u8>,
 }
 
-impl ProtocolWriter {
+impl TransportWriter {
     pub async fn send(&mut self, responses: &[ResponseEnvelope]) -> Result<(), Box<dyn Error>> {
         self.buffer.clear();
 

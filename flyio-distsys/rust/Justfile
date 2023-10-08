@@ -13,6 +13,9 @@ test-single-broadcast: build
 test-multi-broadcast: build
   ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/distsys --node-count 5 --time-limit 20 --rate 10
 
+test-multi-broadcast-fault-tolerant: build
+  ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/distsys --node-count 5 --time-limit 20 --rate 10 --nemesis partition
+
 serve:
   ../../../maelstrom/maelstrom serve
 

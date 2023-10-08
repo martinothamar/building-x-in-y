@@ -3,20 +3,20 @@ use std::error::Error;
 use logger::Logger;
 use mimalloc::MiMalloc;
 use node::{Node, Topology};
-use protocol::{Protocol, ProtocolWriter};
 use request::{Request, RequestEnvelope};
 use response::{Response, ResponseBuilder, ResponseEnvelope};
 use tokio::runtime;
 use tokio_stream::StreamExt;
+use transport::{Transport, TransportWriter};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 mod logger;
 mod node;
-mod protocol;
 mod request;
 mod response;
+mod transport;
 
 const DEBUG: bool = true;
 
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let topology = Topology::new();
         logger.log(format!("[{}] Starting!\n", node.id())).await;
 
-        let (receiver, sender) = Protocol::new().split();
+        let (receiver, sender) = Transport::new().split();
         let mut ctx = NodeContext {
             node,
             topology,
@@ -56,7 +56,7 @@ struct NodeContext {
     node: Node,
     topology: Topology,
     logger: Logger,
-    sender: ProtocolWriter,
+    sender: TransportWriter,
 }
 
 #[inline]
@@ -97,6 +97,16 @@ async fn handle_message(msg: RequestEnvelope, ctx: &mut NodeContext) {
             reply(response_builder, response, ctx).await;
         }
         Request::Topology { msg_id, topology } => {
+            if DEBUG {
+                logger
+                    .log(format!(
+                        "[{}] skipped neighbor - is src: \n{:?}\n",
+                        node.id(),
+                        &serde_json::to_string_pretty(&topology)
+                    ))
+                    .await;
+            }
+
             ctx.topology.init_topology(topology);
             let response = Response::TopologyOk {
                 msg_id: node.get_next_msg_id(),
