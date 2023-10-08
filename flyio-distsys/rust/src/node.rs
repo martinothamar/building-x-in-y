@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt::Display, time::SystemTime};
+use std::{
+    collections::{hash_map::RawEntryMut, BTreeSet, HashMap},
+    fmt::Display,
+    time::SystemTime,
+};
 
 use rand::SeedableRng;
 
@@ -32,7 +36,8 @@ pub struct Node {
     next_msg_id: u64,
     unique_id_generator: ulid::Generator,
     prng: rand::rngs::SmallRng,
-    messages: rustc_hash::FxHashSet<i64>,
+    messages: BTreeSet<u64>,
+    latest_by_node: HashMap<String, u64>,
 }
 
 impl Node {
@@ -42,7 +47,8 @@ impl Node {
             next_msg_id: 0,
             unique_id_generator: ulid::Generator::new(),
             prng: rand::rngs::SmallRng::from_entropy(),
-            messages: rustc_hash::FxHashSet::default(),
+            messages: BTreeSet::new(),
+            latest_by_node: HashMap::new(),
         }
     }
 
@@ -74,12 +80,30 @@ impl Node {
     }
 
     #[inline]
-    pub fn add_message(&mut self, message: i64) -> bool {
+    pub fn add_message(&mut self, message: u64, from: &str) -> bool {
+        if from.starts_with('n') {
+            self.latest_by_node
+                .raw_entry_mut()
+                .from_key(from)
+                .and_modify(|_, v| *v = message.max(*v))
+                .or_insert_with(|| (from.to_string(), message));
+        }
         self.messages.insert(message)
     }
 
     #[inline]
-    pub fn get_messages(&self) -> Vec<i64> {
+    pub fn is_message_known_by(&mut self, message: u64, node: &str) -> bool {
+        assert!(node.starts_with('n'));
+
+        let entry = self.latest_by_node.get(node);
+        match entry {
+            Some(&v) => v >= message,
+            None => false,
+        }
+    }
+
+    #[inline]
+    pub fn get_messages(&self) -> Vec<u64> {
         self.messages.iter().cloned().collect()
     }
 }

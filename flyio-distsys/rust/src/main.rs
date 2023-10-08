@@ -1,10 +1,11 @@
+#![feature(hash_raw_entry)]
+
 use std::error::Error;
 
 use logger::Logger;
+use message::{Message, MessageEnvelope, MessageReplyBuilder};
 use mimalloc::MiMalloc;
 use node::{Node, Topology};
-use request::{Request, RequestEnvelope};
-use response::{Response, ResponseBuilder, ResponseEnvelope};
 use tokio::runtime;
 use tokio_stream::StreamExt;
 use transport::{Transport, TransportWriter};
@@ -13,9 +14,8 @@ use transport::{Transport, TransportWriter};
 static GLOBAL: MiMalloc = MiMalloc;
 
 mod logger;
+mod message;
 mod node;
-mod request;
-mod response;
 mod transport;
 
 const DEBUG: bool = true;
@@ -60,7 +60,7 @@ struct NodeContext {
 }
 
 #[inline]
-async fn handle_message(msg: RequestEnvelope, ctx: &mut NodeContext) {
+async fn handle_message(msg: MessageEnvelope, ctx: &mut NodeContext) {
     let logger = &mut ctx.logger;
     let node = &mut ctx.node;
 
@@ -68,35 +68,38 @@ async fn handle_message(msg: RequestEnvelope, ctx: &mut NodeContext) {
     //     logger.log(format!("[{}] Got message: {:?}\n", node.id(), &msg)).await;
     // }
 
-    let (metadata, request) = msg.split();
-    let response_builder = ResponseBuilder::new(metadata);
-    match request {
-        Request::Init { msg_id, node_id, .. } => {
+    let (metadata, message) = msg.split();
+    let response_builder = MessageReplyBuilder::new(metadata);
+    match message {
+        Message::Init { msg_id, node_id, .. } => {
             ctx.topology.init(node_id.clone());
             node.init(node_id);
-            let response = Response::InitOk {
+            let response = Message::InitOk {
                 msg_id: node.get_next_msg_id(),
                 in_reply_to: msg_id,
             };
             reply(response_builder, response, ctx).await;
         }
-        Request::Echo { msg_id, echo } => {
-            let response = Response::EchoOk {
+        Message::InitOk { .. } => {}
+        Message::Echo { msg_id, echo } => {
+            let response = Message::EchoOk {
                 msg_id: node.get_next_msg_id(),
                 in_reply_to: msg_id,
                 echo: echo.clone(),
             };
             reply(response_builder, response, ctx).await;
         }
-        Request::Generate { msg_id } => {
-            let response = Response::GenerateOk {
+        Message::EchoOk { .. } => {}
+        Message::Generate { msg_id } => {
+            let response = Message::GenerateOk {
                 msg_id: node.get_next_msg_id(),
                 in_reply_to: msg_id,
                 id: node.generate_unique_id(),
             };
             reply(response_builder, response, ctx).await;
         }
-        Request::Topology { msg_id, topology } => {
+        Message::GenerateOk { .. } => {}
+        Message::Topology { msg_id, topology } => {
             if DEBUG {
                 logger
                     .log(format!(
@@ -108,19 +111,20 @@ async fn handle_message(msg: RequestEnvelope, ctx: &mut NodeContext) {
             }
 
             ctx.topology.init_topology(topology);
-            let response = Response::TopologyOk {
+            let response = Message::TopologyOk {
                 msg_id: node.get_next_msg_id(),
                 in_reply_to: msg_id,
             };
             reply(response_builder, response, ctx).await;
         }
-        Request::Broadcast { msg_id, message } => {
-            let is_new = node.add_message(message);
+        Message::TopologyOk { .. } => {}
+        Message::Broadcast { msg_id, message } => {
+            let is_new = node.add_message(message, &response_builder.request.src);
             if is_new {
                 let neighbors = ctx.topology.get_my_neighbors();
                 let mut messages = Vec::with_capacity(neighbors.len() + 1);
                 let src = response_builder.request.src.to_string();
-                messages.push(response_builder.build(Response::BroadcastOk {
+                messages.push(response_builder.build(Message::BroadcastOk {
                     msg_id: node.get_next_msg_id(),
                     in_reply_to: msg_id,
                 }));
@@ -149,10 +153,24 @@ async fn handle_message(msg: RequestEnvelope, ctx: &mut NodeContext) {
                         }
                         continue; // Current sender also has this neighbor, so they've already got it
                     }
-                    messages.push(ResponseEnvelope {
+                    if node.is_message_known_by(message, neighbor) {
+                        if DEBUG {
+                            logger
+                                .log(format!(
+                                    "[{}] skipped neighbor - already knows this value: {:?} {:?}\n",
+                                    node.id(),
+                                    neighbor,
+                                    &message
+                                ))
+                                .await;
+                        }
+                        continue; // Neighbor should already know this message
+                    }
+
+                    messages.push(MessageEnvelope {
                         src: node.id_str().to_string(),
                         dest: neighbor.to_string(),
-                        body: Response::Broadcast {
+                        body: Message::Broadcast {
                             msg_id: node.get_next_msg_id(),
                             message,
                         },
@@ -160,27 +178,28 @@ async fn handle_message(msg: RequestEnvelope, ctx: &mut NodeContext) {
                 }
                 send(&messages, ctx).await;
             } else {
-                let response = Response::BroadcastOk {
+                let response = Message::BroadcastOk {
                     msg_id: node.get_next_msg_id(),
                     in_reply_to: msg_id,
                 };
                 reply(response_builder, response, ctx).await;
             }
         }
-        Request::Read { msg_id } => {
-            let response = Response::ReadOk {
+        Message::BroadcastOk { .. } => {}
+        Message::Read { msg_id } => {
+            let response = Message::ReadOk {
                 msg_id: node.get_next_msg_id(),
                 in_reply_to: msg_id,
                 messages: node.get_messages(),
             };
             reply(response_builder, response, ctx).await;
         }
-        Request::BroadcastOk { .. } => {}
+        Message::ReadOk { .. } => {}
     };
 }
 
 #[inline]
-async fn reply(builder: ResponseBuilder, body: Response, ctx: &mut NodeContext) {
+async fn reply(builder: MessageReplyBuilder, body: Message, ctx: &mut NodeContext) {
     match ctx.sender.send(&[builder.build(body)]).await {
         Ok(_) => {}
         Err(e) => ctx.logger.log(format!("[{}] Error: {}\n", ctx.node.id(), e)).await,
@@ -188,7 +207,7 @@ async fn reply(builder: ResponseBuilder, body: Response, ctx: &mut NodeContext) 
 }
 
 #[inline]
-async fn send(bodies: &[ResponseEnvelope], ctx: &mut NodeContext) {
+async fn send(bodies: &[MessageEnvelope], ctx: &mut NodeContext) {
     match ctx.sender.send(bodies).await {
         Ok(_) => {}
         Err(e) => ctx.logger.log(format!("[{}] Error: {}\n", ctx.node.id(), e)).await,
