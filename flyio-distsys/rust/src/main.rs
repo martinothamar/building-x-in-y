@@ -21,17 +21,17 @@ mod message;
 mod node;
 mod transport;
 
-const DEBUG: bool = true;
+const DEBUG: bool = false;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let runtime = runtime::Builder::new_current_thread().enable_all().build()?;
 
     runtime.block_on(async {
-        let mut logger = Logger::new();
+        let (mut logger, logger_thread) = Logger::new();
 
         let node = Node::new();
         let topology = Topology::new();
-        logger.log(format!("[{}] Starting!\n", node.id())).await;
+        logger.log(format!("[{}] Starting!\n", node.id()));
 
         let (receiver, sender) = Transport::new().split();
         let mut ctx = NodeContext {
@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
 
         let mut stream = receiver.recv_stream();
-        let mut gossip_timer = time::interval(Duration::from_millis(100));
+        let mut gossip_timer = time::interval(Duration::from_millis(500));
 
         loop {
             tokio::select! {
@@ -61,25 +61,27 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
 
                         if DEBUG {
-                            ctx.logger.log(format!("[{}] Retrying messages: {}\n", ctx.node.id(), messages.len())).await;
+                            ctx.logger.log(format!("[{}] Retrying messages: {}\n", ctx.node.id(), messages.len()));
                         }
                         send(&messages, &mut ctx).await;
                     }
                 }
                 result = stream.next() => {
                     let Some(result) = result else {
-                        ctx.logger.log(format!("[{}] End of messages\n", ctx.node.id())).await;
+                        ctx.logger.log(format!("[{}] End of messages\n", ctx.node.id()));
                         break;
                     };
                     match result {
                         Ok(msg) => handle_message(msg, &mut ctx).await,
-                        Err(e) => ctx.logger.log(format!("[{}] Error: {}\n", ctx.node.id(), e)).await,
+                        Err(e) => ctx.logger.log(format!("[{}] Error: {}\n", ctx.node.id(), e)),
                     };
                 }
             }
         }
 
-        ctx.logger.log(format!("[{}] Exiting...\n", ctx.node.id())).await;
+        logger_thread.join().expect("Logger thread should not panic");
+
+        ctx.logger.log(format!("[{}] Exiting...\n", ctx.node.id()));
     });
 
     Ok(())
@@ -98,7 +100,7 @@ async fn handle_message(msg: MessageEnvelope, ctx: &mut NodeContext) {
     let node = &mut ctx.node;
 
     // if DEBUG {
-    //     logger.log(format!("[{}] Got message: {:?}\n", node.id(), &msg)).await;
+    //     logger.log(format!("[{}] Got message: {:?}\n", node.id(), &msg));
     // }
 
     let (metadata, message) = msg.split();
@@ -134,13 +136,11 @@ async fn handle_message(msg: MessageEnvelope, ctx: &mut NodeContext) {
         Message::GenerateOk { .. } => {}
         Message::Topology { msg_id, topology } => {
             if DEBUG {
-                logger
-                    .log(format!(
-                        "[{}] skipped neighbor - is src: \n{:?}\n",
-                        node.id(),
-                        &serde_json::to_string_pretty(&topology)
-                    ))
-                    .await;
+                logger.log(format!(
+                    "[{}] skipped neighbor - is src: \n{:?}\n",
+                    node.id(),
+                    &serde_json::to_string_pretty(&topology)
+                ));
             }
 
             ctx.topology.init_topology(topology);
@@ -167,22 +167,18 @@ async fn handle_message(msg: MessageEnvelope, ctx: &mut NodeContext) {
                 for neighbor in neighbors {
                     if src.eq(neighbor) {
                         if DEBUG {
-                            logger
-                                .log(format!("[{}] skipped neighbor - is src: {:?}\n", node.id(), &src))
-                                .await;
+                            logger.log(format!("[{}] skipped neighbor - is src: {:?}\n", node.id(), &src));
                         }
                         continue; // Don't broadcast back to sender
                     }
                     if broadcasters_neighbors.contains(neighbor) {
                         if DEBUG {
-                            logger
-                                .log(format!(
-                                    "[{}] skipped neighbor - src also has this neighbor: {:?} {:?}\n",
-                                    node.id(),
-                                    &src,
-                                    neighbor
-                                ))
-                                .await;
+                            logger.log(format!(
+                                "[{}] skipped neighbor - src also has this neighbor: {:?} {:?}\n",
+                                node.id(),
+                                &src,
+                                neighbor
+                            ));
                         }
                         continue; // Current sender also has this neighbor, so they've already got it
                     }
@@ -190,14 +186,12 @@ async fn handle_message(msg: MessageEnvelope, ctx: &mut NodeContext) {
                     let messages_to_broadcast = node.get_gossip_messages_for(neighbor);
                     if messages_to_broadcast.is_empty() {
                         if DEBUG {
-                            logger
-                                .log(format!(
-                                    "[{}] skipped neighbor - already knows everything: {:?} {:?}\n",
-                                    node.id(),
-                                    neighbor,
-                                    &message
-                                ))
-                                .await;
+                            logger.log(format!(
+                                "[{}] skipped neighbor - already knows everything: {:?} {:?}\n",
+                                node.id(),
+                                neighbor,
+                                &message
+                            ));
                         }
                         continue;
                     }
@@ -206,14 +200,12 @@ async fn handle_message(msg: MessageEnvelope, ctx: &mut NodeContext) {
                     for message in messages_to_broadcast {
                         if node.message_is_pending(message, neighbor) {
                             if DEBUG {
-                                logger
-                                    .log(format!(
-                                        "[{}] skipped neighbor - this message is pending: {:?} {:?}\n",
-                                        node.id(),
-                                        neighbor,
-                                        &message
-                                    ))
-                                    .await;
+                                logger.log(format!(
+                                    "[{}] skipped neighbor - this message is pending: {:?} {:?}\n",
+                                    node.id(),
+                                    neighbor,
+                                    &message
+                                ));
                             }
                             continue;
                         }
@@ -257,7 +249,7 @@ async fn handle_message(msg: MessageEnvelope, ctx: &mut NodeContext) {
 async fn reply(builder: MessageReplyBuilder, body: Message, ctx: &mut NodeContext) {
     match ctx.sender.send(&[builder.build(body)]).await {
         Ok(_) => {}
-        Err(e) => ctx.logger.log(format!("[{}] Error: {}\n", ctx.node.id(), e)).await,
+        Err(e) => ctx.logger.log(format!("[{}] Error: {}\n", ctx.node.id(), e)),
     };
 }
 
@@ -265,6 +257,6 @@ async fn reply(builder: MessageReplyBuilder, body: Message, ctx: &mut NodeContex
 async fn send(bodies: &[MessageEnvelope], ctx: &mut NodeContext) {
     match ctx.sender.send(bodies).await {
         Ok(_) => {}
-        Err(e) => ctx.logger.log(format!("[{}] Error: {}\n", ctx.node.id(), e)).await,
+        Err(e) => ctx.logger.log(format!("[{}] Error: {}\n", ctx.node.id(), e)),
     };
 }
