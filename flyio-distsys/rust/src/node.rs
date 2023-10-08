@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::RawEntryMut, BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap},
     fmt::Display,
     time::SystemTime,
 };
@@ -37,7 +37,7 @@ pub struct Node {
     unique_id_generator: ulid::Generator,
     prng: rand::rngs::SmallRng,
     messages: BTreeSet<u64>,
-    latest_by_node: HashMap<String, u64>,
+    messages_by_node: HashMap<String, BTreeSet<u64>>,
 }
 
 impl Node {
@@ -48,7 +48,7 @@ impl Node {
             unique_id_generator: ulid::Generator::new(),
             prng: rand::rngs::SmallRng::from_entropy(),
             messages: BTreeSet::new(),
-            latest_by_node: HashMap::new(),
+            messages_by_node: HashMap::new(),
         }
     }
 
@@ -82,29 +82,31 @@ impl Node {
     #[inline]
     pub fn add_message(&mut self, message: u64, from: &str) -> bool {
         if from.starts_with('n') {
-            self.latest_by_node
+            self.messages_by_node
                 .raw_entry_mut()
                 .from_key(from)
-                .and_modify(|_, v| *v = message.max(*v))
-                .or_insert_with(|| (from.to_string(), message));
+                .and_modify(|_, set| _ = set.insert(message))
+                .or_insert_with(|| {
+                    let mut set = BTreeSet::new();
+                    set.insert(message);
+                    (from.to_string(), set)
+                });
         }
         self.messages.insert(message)
     }
 
     #[inline]
-    pub fn is_message_known_by(&mut self, message: u64, node: &str) -> bool {
-        assert!(node.starts_with('n'));
-
-        let entry = self.latest_by_node.get(node);
-        match entry {
-            Some(&v) => v >= message,
-            None => false,
-        }
+    pub fn get_messages(&self) -> Vec<u64> {
+        self.messages.iter().cloned().collect()
     }
 
     #[inline]
-    pub fn get_messages(&self) -> Vec<u64> {
-        self.messages.iter().cloned().collect()
+    pub fn get_gossip_messages_for(&self, node: &str) -> Vec<u64> {
+        let node_messages = self.messages_by_node.get(node);
+        match node_messages {
+            Some(set) => self.messages.difference(set).copied().collect(),
+            None => self.messages.iter().copied().collect(),
+        }
     }
 }
 

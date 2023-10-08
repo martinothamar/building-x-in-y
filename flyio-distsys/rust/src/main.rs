@@ -153,28 +153,32 @@ async fn handle_message(msg: MessageEnvelope, ctx: &mut NodeContext) {
                         }
                         continue; // Current sender also has this neighbor, so they've already got it
                     }
-                    if node.is_message_known_by(message, neighbor) {
+
+                    let messages_to_broadcast = node.get_gossip_messages_for(neighbor);
+                    if messages_to_broadcast.is_empty() {
                         if DEBUG {
                             logger
                                 .log(format!(
-                                    "[{}] skipped neighbor - already knows this value: {:?} {:?}\n",
+                                    "[{}] skipped neighbor - already knows everything: {:?} {:?}\n",
                                     node.id(),
                                     neighbor,
                                     &message
                                 ))
                                 .await;
                         }
-                        continue; // Neighbor should already know this message
+                        continue;
                     }
 
-                    messages.push(MessageEnvelope {
-                        src: node.id_str().to_string(),
-                        dest: neighbor.to_string(),
-                        body: Message::Broadcast {
-                            msg_id: node.get_next_msg_id(),
-                            message,
-                        },
-                    });
+                    for message in messages_to_broadcast {
+                        messages.push(MessageEnvelope {
+                            src: node.id_str().to_string(),
+                            dest: neighbor.to_string(),
+                            body: Message::Broadcast {
+                                msg_id: node.get_next_msg_id(),
+                                message,
+                            },
+                        });
+                    }
                 }
                 send(&messages, ctx).await;
             } else {
