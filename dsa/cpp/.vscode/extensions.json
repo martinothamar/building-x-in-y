@@ -1,0 +1,9 @@
+{
+    "recommendations": [
+        "ms-vscode.makefile-tools",
+        "vadimcn.vscode-lldb",
+        "ms-vscode.cpptools-extension-pack",
+        "xaver.clang-format",
+        "rubymaniac.vscode-direnv"
+    ]
+}

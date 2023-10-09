@@ -464,3 +464,5 @@ flamegraph.svg
 todos.db*
 
 flyio-distsys/**/store/
+
+.direnv/

@@ -1,0 +1,5 @@
+
+lc target:
+  @echo 'Building {{target}}…'
+  clang++ -std=c++20 src/lc/{{target}}.cpp -o bin/{{target}}
+  ./bin/{{target}}
