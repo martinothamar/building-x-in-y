@@ -463,6 +463,6 @@ flamegraph.svg
 
 todos.db*
 
-flyio-distsys/**/store/
+flyio-gossip-glomers/**/store/
 
 .direnv/

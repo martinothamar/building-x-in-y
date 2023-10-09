@@ -39,10 +39,11 @@ Example (`git ls-tree -r --name-only HEAD | tree --fromfile`):
 
 ## Topics
 
-* [Datastructures and algorithms (DSA)](/dsa)
-* [HTTP server](/http-server)
+* [Datastructures and algorithms (DSA)](/dsa) - including some leetcode
+* [HTTP server](/http-server) - HTTP server from scratch
 * [Monte Carlo simulations](/monte-carlo-sim) - simulating a premier league season 100k times. SIMD, performance engineering
 * [Calculation Engine](/calculation-engine) - calculatione engine with a builder API and SIMD operations
+* [fly.io Gossip Glomers](/flyio-gossip-glomers) - distributed systems challengers centered around gossip protocols and consensus
 * [Todo API](/todo-api) - production-ready setup for apps/APIs in various languages
 
 ## Notes
