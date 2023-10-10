@@ -2,19 +2,19 @@ build:
   cargo build --release
 
 test-echo: build
-  ../../../maelstrom/maelstrom test -w echo --bin ../../target/release/distsys -- node-count 1 --time-limit 10
+  ../../../maelstrom/maelstrom test -w echo --bin ../../target/release/echo -- node-count 1 --time-limit 10
 
 test-unique-ids: build
-  ../../../maelstrom/maelstrom test -w unique-ids --bin ../../target/release/distsys --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
+  ../../../maelstrom/maelstrom test -w unique-ids --bin ../../target/release/unique-ids --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
 
 test-single-broadcast: build
-  ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/distsys --node-count 1 --time-limit 20 --rate 10
+  ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/single-broadcast --node-count 1 --time-limit 20 --rate 10
 
 test-multi-broadcast: build
-  ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/distsys --node-count 5 --time-limit 20 --rate 10
+  ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/multi-broadcast --node-count 5 --time-limit 20 --rate 10
 
 test-multi-broadcast-fault-tolerant: build
-  ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/distsys --node-count 5 --time-limit 20 --rate 10 --nemesis partition
+  ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/multi-broadcast-fault-tolerant --node-count 5 --time-limit 20 --rate 10 --nemesis partition
 
 test-multi-broadcast-efficient-1: build
   ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/distsys --node-count 25 --time-limit 20 --rate 100 --latency 100

@@ -3,8 +3,29 @@ name = "distsys"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "echo"
+path = "src/bin/echo.rs"
+
+[[bin]]
+name = "unique-ids"
+path = "src/bin/unique-ids.rs"
+
+[[bin]]
+name = "single-broadcast"
+path = "src/bin/single-broadcast.rs"
+
+[[bin]]
+name = "multi-broadcast"
+path = "src/bin/multi-broadcast.rs"
+
+[[bin]]
+name = "multi-broadcast-fault-tolerant"
+path = "src/bin/multi-broadcast-fault-tolerant.rs"
+
 [dependencies]
 async-stream = "0.3.5"
+async-trait = "0.1.73"
 mimalloc = "0.1.39"
 rand = { version = "0.8.5", features = ["small_rng"] }
 rustc-hash = "1.1.0"

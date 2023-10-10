@@ -37,19 +37,27 @@ impl Transport {
     }
 }
 
+impl Default for Transport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct TransportReader {
     incoming: BufReader<io::Stdin>,
     buffer: Vec<u8>,
 }
 
 impl TransportReader {
-    pub fn recv_stream(mut self) -> Pin<Box<impl Stream<Item = Result<MessageEnvelope, std::io::Error>>>> {
+    pub fn recv_stream<T: serde::de::DeserializeOwned>(
+        mut self,
+    ) -> Pin<Box<impl Stream<Item = Result<MessageEnvelope<T>, std::io::Error>>>> {
         Box::pin(stream! {
             loop {
                 let result = self.incoming.read_until(b'\n', &mut self.buffer).await;
                 match result {
                     Ok(read) => {
-                        let msg: MessageEnvelope = serde_json::from_slice(&self.buffer[..read])?;
+                        let msg: MessageEnvelope<T> = serde_json::from_slice(&self.buffer[..read])?;
                         yield Ok(msg);
                     }
                     Err(e) => yield Err(e),
@@ -67,7 +75,7 @@ pub struct TransportWriter {
 }
 
 impl TransportWriter {
-    pub async fn send(&mut self, messages: &[MessageEnvelope]) -> Result<(), Box<dyn Error>> {
+    pub async fn send<T: serde::Serialize>(&mut self, messages: &[MessageEnvelope<T>]) -> Result<(), Box<dyn Error>> {
         self.buffer.clear();
 
         for message in messages {
