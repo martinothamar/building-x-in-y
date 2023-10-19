@@ -70,6 +70,20 @@ impl Topology {
             None => &[],
         }
     }
+
+    #[inline]
+    pub fn get_all_other_nodes(&self) -> Vec<String> {
+        self.topology
+            .keys()
+            .cloned()
+            .filter(|n| n != self.id.0.as_ref().unwrap())
+            .collect()
+    }
+
+    #[inline]
+    pub fn node_count(&self) -> usize {
+        self.topology.keys().count()
+    }
 }
 
 impl Default for Topology {
