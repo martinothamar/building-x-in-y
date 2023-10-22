@@ -10,6 +10,13 @@
         "tamasfe.even-better-toml",
         "ms-azuretools.vscode-docker",
         "redhat.vscode-yaml",
-        "golang.go"
+        "golang.go",
+
+        // C++
+        "ms-vscode.makefile-tools",
+        "vadimcn.vscode-lldb",
+        "ms-vscode.cpptools-extension-pack",
+        "xaver.clang-format",
+        "rubymaniac.vscode-direnv"
     ]
 }

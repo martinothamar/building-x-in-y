@@ -1,24 +1,25 @@
 #include <algorithm>
-#include <iostream>
-#include <unordered_set>
-#include <vector>
+#include <cassert>
+#include <print>
+#include <span>
 
 class Solution {
 public:
-  bool containsDuplicate(std::vector<int> &nums) {
+  bool containsDuplicate(std::span<int> nums) {
     if (nums.size() < 2) {
       return false;
     }
 
+    // VSCode complains if I use std::ranges::sort :(
     std::sort(nums.begin(), nums.end());
 
     int prev = nums[0];
-    for (int i = 1; i < nums.size(); i++) {
-      if (nums[i] == prev) {
+    for (const auto num : nums.subspan(1)) {
+      if (num == prev) {
         return true;
       }
 
-      prev = nums[i];
+      prev = num;
     }
 
     return false;
@@ -27,8 +28,17 @@ public:
 
 int main() {
   Solution s;
-  std::vector<int> nums = {1, 2, 1, 0};
-  bool result = s.containsDuplicate(nums);
-  std::cout << "Solution: " << result << "\n";
+  {
+    auto input = std::array{1, 2, 1, 0};
+    auto result = s.containsDuplicate(input);
+    assert(result == true);
+    std::println("Solution 1: {0}", result);
+  }
+  {
+    auto input = std::array{2, 1, 0};
+    auto result = s.containsDuplicate(input);
+    assert(result == false);
+    std::println("Solution 2: {0}", result);
+  }
   return 0;
 }
