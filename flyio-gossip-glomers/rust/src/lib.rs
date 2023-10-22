@@ -21,12 +21,20 @@ pub mod transport;
 
 pub struct Runtime {
     inner: runtime::Runtime,
+    gossip_tick_interval: Duration,
 }
 
 impl Runtime {
     pub fn new() -> Result<Self, Box<dyn Error>> {
+        Self::new_with_gossip_tick_interval(Duration::from_millis(500))
+    }
+
+    pub fn new_with_gossip_tick_interval(gossip_tick_interval: Duration) -> Result<Self, Box<dyn Error>> {
         let runtime = runtime::Builder::new_current_thread().enable_all().build()?;
-        Ok(Self { inner: runtime })
+        Ok(Self {
+            inner: runtime,
+            gossip_tick_interval,
+        })
     }
 
     pub fn run<TNode: MaelstromNode<TMessage>, TMessage: serde::Serialize + serde::de::DeserializeOwned>(
@@ -47,7 +55,7 @@ impl Runtime {
             };
 
             let mut stream = receiver.recv_stream();
-            let mut gossip_timer = time::interval(Duration::from_millis(500));
+            let mut gossip_timer = time::interval(self.gossip_tick_interval);
 
             loop {
                 tokio::select! {

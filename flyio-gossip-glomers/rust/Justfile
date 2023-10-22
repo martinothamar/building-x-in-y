@@ -19,8 +19,14 @@ test-multi-broadcast-fault-tolerant: build
 test-multi-broadcast-efficient-1: build
   ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/multi-broadcast-efficient-1 --node-count 25 --time-limit 20 --rate 100 --latency 100
 
-test-multi-broadcast-efficient-1-fault-tolerand: build
+test-multi-broadcast-efficient-1-fault-tolerant: build
   ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/multi-broadcast-efficient-1 --node-count 25 --time-limit 20 --rate 100 --latency 100 --nemesis partition
+
+test-multi-broadcast-efficient-2: build
+  ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/multi-broadcast-efficient-2 --node-count 25 --time-limit 20 --rate 100 --latency 100
+
+test-multi-broadcast-efficient-2-fault-tolerant: build
+  ../../../maelstrom/maelstrom test -w broadcast --bin ../../target/release/multi-broadcast-efficient-2 --node-count 25 --time-limit 20 --rate 100 --latency 100 --nemesis partition
 
 serve:
   ../../../maelstrom/maelstrom serve
