@@ -99,11 +99,15 @@
     "C_Cpp.clang_format_path": "/usr/bin/clang-format-17",
     "clang-format.executable": "/usr/bin/clang-format-17",
     "C_Cpp.default.cppStandard": "c++23",
+    "C_Cpp.default.compilerArgs": ["-std=c++23", "-stdlib=libc++"],
     "C_Cpp.default.cStandard": "c17",
-    "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+    "C_Cpp.default.intelliSenseMode": "linux-clang-x64",
     "C_Cpp.default.includePath": [
         "${workspaceFolder}/**",
         "/usr/lib/llvm-17/bin/../include/c++/v1",
-        "/usr/lib/llvm-17/lib/clang/17/include"
+        "/usr/lib/llvm-17/lib/clang/17/include",
+        "/usr/local/include",
+        "/usr/include/x86_64-linux-gnu",
+        "/usr/include"
     ]
 }

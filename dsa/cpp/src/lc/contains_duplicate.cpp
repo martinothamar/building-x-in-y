@@ -12,6 +12,7 @@ public:
 
     // VSCode complains if I use std::ranges::sort :(
     std::sort(nums.begin(), nums.end());
+    // std::ranges::sort(nums);
 
     int prev = nums[0];
     for (const auto num : nums.subspan(1)) {
