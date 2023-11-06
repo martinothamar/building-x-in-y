@@ -6,7 +6,8 @@ members = [
     "http-server/rust-baseline",
     "monte-carlo-sim/rust",
     "todo-api/rust",
-    "flyio-gossip-glomers/rust"
+    "flyio-gossip-glomers/rust",
+    "raytracing/rust"
 ]
 resolver = "2"
 

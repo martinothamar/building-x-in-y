@@ -468,3 +468,5 @@ todos.db*
 flyio-gossip-glomers/**/store/
 
 .direnv/
+
+image.ppm
