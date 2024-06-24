@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-#![feature(stdsimd)]
+#![feature(stdarch_x86_avx512)]
 #![feature(allocator_api)]
 
 use serde::Deserialize;

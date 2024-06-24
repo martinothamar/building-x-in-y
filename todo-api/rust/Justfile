@@ -17,8 +17,8 @@ install:
   @echo 'Updating db...'
   sqlx database create
   sqlx migrate run
-  docker compose pull
-  docker compose up -d
+  # docker compose pull
+  # docker compose up -d
   cd ../../ && ln -s todo-api/rust/todos.db todos.db
 
 recreate-db:

@@ -36,7 +36,7 @@ impl Engine {
 
         use std::simd::f64x4 as vector;
 
-        let lanes = vector::LANES;
+        let lanes = vector::LEN;
 
         const MAX_STACK_SIZE: usize = 16;
         let mut stack = tiny_vec!([usize; MAX_STACK_SIZE]);
