@@ -31,13 +31,15 @@ dotnet run -c Release
 99.99% <= 0.2 milliseconds
 100.00% <= 0.3 milliseconds
 100.00% <= 0.4 milliseconds
-100.00% <= 0.5 milliseconds
+100.00% <= 0.6 milliseconds
+100.00% <= 0.7 milliseconds
 100.00% <= 1.0 milliseconds
+100.00% <= 1.1 milliseconds
 100.00% <= 1.1 milliseconds
 249875.08 requests per second
 
 ====== GET ======
-  1000000 requests completed in 4.25 seconds
+  1000000 requests completed in 4.00 seconds
   4 parallel clients
   3 bytes payload
   keep alive: 1
@@ -48,13 +50,16 @@ dotnet run -c Release
 
 99.98% <= 0.1 milliseconds
 99.99% <= 0.2 milliseconds
-100.00% <= 0.3 milliseconds
+99.99% <= 0.3 milliseconds
 100.00% <= 0.4 milliseconds
+100.00% <= 0.5 milliseconds
 100.00% <= 0.7 milliseconds
 100.00% <= 0.8 milliseconds
+100.00% <= 0.9 milliseconds
 100.00% <= 1.0 milliseconds
-100.00% <= 1.0 milliseconds
-235238.77 requests per second
+100.00% <= 1.1 milliseconds
+100.00% <= 2 milliseconds
+249875.08 requests per second
 ```
 
 ## Valkey image
