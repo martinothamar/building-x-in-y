@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -45,7 +44,7 @@ public sealed class Server : IDisposable
         var cores = Environment.ProcessorCount;
         var threads = new Task[cores / 2 / 2];
 
-        _storage = new Storage();
+        _storage = new Storage(cancellationToken);
 
         for (int i = 0; i < threads.Length; i++)
         {
@@ -123,49 +122,58 @@ public sealed class Server : IDisposable
         Assert(state.Socket.RemoteEndPoint is not null, "remote endpoint");
         var clientId = state.Socket.RemoteEndPoint.ToString();
         await Console.Out.WriteLineAsync($"[{state.ServerThreadId}] Client connected: '{clientId}'");
-        byte[]? recvBuffer = null;
-        byte[]? sendBuffer = null;
+        ArenaAllocator? protocolAllocator = null;
+        ArenaAllocator? bufferAllocator = null;
+        Memory<byte> recvBuffer = default;
         int read = 0;
         try
         {
             var cancellationToken = state.Stopping;
             using var socket = state.Socket;
 
-            recvBuffer = ArrayPool<byte>.Shared.Rent(BufferSize);
-            sendBuffer = ArrayPool<byte>.Shared.Rent(BufferSize);
-            Assert(recvBuffer.Length >= BufferSize, "buffer size");
-            Assert(sendBuffer.Length >= BufferSize, "buffer size");
+            bufferAllocator = ArenaAllocator.Allocate(BufferSize * 2);
+            recvBuffer = bufferAllocator.Allocate<byte>(BufferSize).Memory;
+            var sendBuffer = bufferAllocator.Allocate<byte>(BufferSize).Memory;
+            protocolAllocator = ArenaAllocator.Allocate(BufferSize);
+            Assert(recvBuffer.Length == BufferSize, "buffer size");
+            Assert(sendBuffer.Length == BufferSize, "buffer size");
             int receiveFrom = 0;
-            Memory<byte> buffer = recvBuffer.AsMemory(0, BufferSize);
             while (true)
             {
                 read = await socket.ReceiveAsync(
-                    receiveFrom == 0 ? buffer : buffer.Slice(receiveFrom),
+                    receiveFrom == 0 ? recvBuffer : recvBuffer.Slice(receiveFrom),
                     cancellationToken
                 );
 
                 if (read == 0)
                     break; // EOF
-                if (receiveFrom + read > BufferSize)
-                    break; // Too large
 
-                var response = Handle(recvBuffer, receiveFrom + read, sendBuffer);
+                var response = Handle(protocolAllocator, recvBuffer.Slice(0, receiveFrom + read), sendBuffer);
+
+                // var debugMsg = Encoding.ASCII.GetString(recvBuffer, 0, receiveFrom + read).Replace("\r\n", "\\r\\n");
+                // await Console.Out.WriteLineAsync($"[{state.ServerThreadId}] Debug in: {debugMsg}");
+
                 if (response.IsEmpty)
                 {
                     receiveFrom += read;
                 }
                 else
                 {
+                    // var outDebugMsg = Encoding.ASCII.GetString(response.Span).Replace("\r\n", "\\r\\n");
+                    // await Console.Out.WriteLineAsync($"[{state.ServerThreadId}] Debug out: {outDebugMsg}");
+
                     await socket.SendAsync(response, cancellationToken);
                     receiveFrom = 0;
                 }
+
+                protocolAllocator.Reset();
             }
 
             socket.Close();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            var str = recvBuffer is not null && read > 0 ? Encoding.ASCII.GetString(recvBuffer, 0, read) : "";
+            var str = !recvBuffer.IsEmpty && read > 0 ? Encoding.ASCII.GetString(recvBuffer.Span.Slice(0, read)) : "";
             str = str.Replace("\r\n", "\\r\\n");
             await Console.Error.WriteLineAsync(
                 $"[{state.ServerThreadId}] Client thread '{clientId}' crash for msg '{str}': {ex}"
@@ -173,34 +181,27 @@ public sealed class Server : IDisposable
         }
         finally
         {
-            if (recvBuffer is not null)
-                ArrayPool<byte>.Shared.Return(recvBuffer);
-            if (sendBuffer is not null)
-                ArrayPool<byte>.Shared.Return(sendBuffer);
+            if (bufferAllocator is not null)
+                bufferAllocator.Dispose();
+            if (protocolAllocator is not null)
+                protocolAllocator.Dispose();
         }
     }
 
-    ReadOnlyMemory<byte> Handle(byte[] buffer, int read, byte[] sendBuffer)
+    ReadOnlyMemory<byte> Handle(ArenaAllocator allocator, Memory<byte> buffer, Memory<byte> sendBuffer)
     {
-        ReadOnlySpan<byte> data = buffer.AsSpan(0, read);
-        var outbox = sendBuffer.AsSpan(0, BufferSize);
+        ReadOnlySpan<byte> data = buffer.Span;
+        var outbox = sendBuffer.Span;
 
-        var commandBuffer = CommandBuffer.Allocate(4);
-        try
-        {
-            if (!RespParser.TryParse(data, ref commandBuffer))
-                return ReadOnlyMemory<byte>.Empty;
+        var commandBuffer = CommandBuffer.Allocate(allocator);
 
-            var commands = commandBuffer.Span;
-            foreach (ref var cmd in commands)
-                HandleCommand(ref outbox, ref cmd);
+        if (!RespParser.TryParse(allocator, data, ref commandBuffer))
+            return ReadOnlyMemory<byte>.Empty;
 
-            return sendBuffer.AsMemory(0, sendBuffer.Length - outbox.Length);
-        }
-        finally
-        {
-            commandBuffer.Dispose();
-        }
+        foreach (ref var cmd in commandBuffer.Span)
+            HandleCommand(ref outbox, ref cmd);
+
+        return sendBuffer.Slice(0, sendBuffer.Length - outbox.Length);
 
         // 'GET key' - *2\r\n$3\r\nGET\r\n$3\r\nkey\r\n
         // 'CONFIG GET save CONFIG get appendonly' - *3\r\n$6\r\nCONFIG\r\n$3\r\nGET\r\n$4\r\nsave\r\n*3\r\n$6\r\nCONFIG\r\n$3\r\nGET\r\n$10\r\nappendonly\r\n
@@ -267,7 +268,7 @@ public sealed class Server : IDisposable
         Assert(cmd.Length is 2, "GET has two args");
         Assert(_storage is not null, "storage was null");
         var keyValue = ByteString.BorrowFrom(cmd[1].Span);
-        if (_storage.TryGetValue(in keyValue, out var value))
+        if (_storage.TryGetValue(ref keyValue, out var value))
         {
             RespWriter.WriteBulkString(ref outbox, in value);
         }
@@ -283,8 +284,8 @@ public sealed class Server : IDisposable
         Assert(cmd.Length is 3, "SET has three args");
         Assert(_storage is not null, "storage was null");
         var keyValue = ByteString.BorrowFrom(cmd[1].Span);
-        var valueValue = ByteString.CopyFrom(cmd[2].Span);
-        _storage.Set(in keyValue, in valueValue);
+        var valueValue = ByteString.BorrowFrom(cmd[2].Span);
+        _storage.Set(ref keyValue, ref valueValue);
 
         Responses.OK.CopyTo(outbox);
         outbox = outbox.Slice(Responses.OK.Length);

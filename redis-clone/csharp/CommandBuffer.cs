@@ -1,55 +1,32 @@
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace RedisClone;
 
-internal unsafe struct CommandBuffer : IDisposable
+internal unsafe struct CommandBuffer
 {
-    public Command* Ptr;
-    public int Capacity;
-    public int Length;
+    private const int Capacity = 1024 * 4;
+    private Command* _ptr;
+    public int Length { get; private set; }
 
-    public readonly Span<Command> Span => new Span<Command>(Ptr, Length);
+    private CommandBuffer(Command* ptr)
+    {
+        _ptr = ptr;
+        Length = 0;
+    }
 
     public ref Command Add()
     {
-        Assert(Ptr is not null, "CommandBuffer must be allocated");
-        Assert(Capacity > 0, "CommandBuffer must have capacity");
-
-        var newLength = Length + 1;
-        if (newLength > Capacity)
-            Grow();
-
-        ref var cmd = ref Unsafe.AsRef<Command>(Ptr + Length);
-        Length = newLength;
+        Assert(Length < Capacity, "fixed CommandBuffer capacity exceeded");
+        ref var cmd = ref Unsafe.AsRef<Command>(_ptr + Length);
+        Length++;
         return ref cmd;
     }
 
-    public static CommandBuffer Allocate(int capacity = 4)
-    {
-        CommandBuffer r = default;
-        r.Capacity = capacity;
-        r.Length = 0;
-        r.Ptr = (Command*)NativeMemory.AlignedAlloc((nuint)(sizeof(Command) * capacity), 64);
-        return r;
-    }
+    public Span<Command> Span => new Span<Command>(_ptr, Length);
 
-    private void Grow()
+    public static CommandBuffer Allocate(ArenaAllocator allocator)
     {
-        var newLength = Capacity * 2;
-        Ptr = (Command*)NativeMemory.AlignedRealloc(Ptr, (nuint)(sizeof(Command) * newLength), 64);
-        Capacity = newLength;
-    }
-
-    public void Dispose()
-    {
-        if (Ptr is not null)
-        {
-            foreach (ref var cmd in Span)
-            {
-                cmd.Dispose();
-            }
-            NativeMemory.AlignedFree(Ptr);
-        }
+        var ptr = allocator.AllocatePtr<Command>(Capacity);
+        return new CommandBuffer(ptr);
     }
 }

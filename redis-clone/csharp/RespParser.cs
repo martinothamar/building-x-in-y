@@ -2,35 +2,11 @@ using System.Globalization;
 
 namespace RedisClone;
 
-internal static class RespWriter
-{
-    private static ReadOnlySpan<byte> CRLF => "\r\n"u8;
-
-    public static void WriteBulkString(ref Span<byte> outbox, in ByteString value)
-    {
-        var outboxIndex = 0;
-        outbox[outboxIndex++] = (byte)'$';
-        Assert(
-            value.Length.TryFormat(outbox.Slice(1), out var lenBytes, provider: CultureInfo.InvariantCulture),
-            "write len bytes for string"
-        );
-        outboxIndex += lenBytes;
-        outbox[outboxIndex++] = (byte)'\r';
-        outbox[outboxIndex++] = (byte)'\n';
-        var valueSpan = value.Span;
-        valueSpan.CopyTo(outbox.Slice(outboxIndex));
-        outboxIndex += valueSpan.Length;
-        outbox[outboxIndex++] = (byte)'\r';
-        outbox[outboxIndex++] = (byte)'\n';
-        outbox = outbox.Slice(outboxIndex);
-    }
-}
-
 internal static class RespParser
 {
     private static ReadOnlySpan<byte> CRLF => "\r\n"u8;
 
-    public static bool TryParse(ReadOnlySpan<byte> data, ref CommandBuffer commandBuffer)
+    public static bool TryParse(ArenaAllocator allocator, ReadOnlySpan<byte> data, ref CommandBuffer commandBuffer)
     {
         while (data.Length > 0)
         {
@@ -41,13 +17,13 @@ internal static class RespParser
                     if (!TryParseBulkString(ref data, out var strArg))
                         return false;
                     ref var cmd = ref commandBuffer.Add();
-                    cmd = Command.Allocate(1);
+                    cmd = Command.Allocate(allocator, 1);
                     cmd.Add(ref strArg);
                     break;
                 }
                 case (byte)'*':
                 {
-                    if (!TryParseArray(ref data, ref commandBuffer))
+                    if (!TryParseArray(allocator, ref data, ref commandBuffer))
                         return false;
                     break;
                 }
@@ -60,13 +36,13 @@ internal static class RespParser
         return true;
     }
 
-    static bool TryParseArray(ref ReadOnlySpan<byte> data, ref CommandBuffer commandBuffer)
+    static bool TryParseArray(ArenaAllocator allocator, ref ReadOnlySpan<byte> data, ref CommandBuffer commandBuffer)
     {
         if (!TryParseLength(ref data, out var arrayLength))
             return false;
 
         ref var cmd = ref commandBuffer.Add();
-        cmd = Command.Allocate(arrayLength);
+        cmd = Command.Allocate(allocator, arrayLength);
 
         for (int i = 0; i < arrayLength; i++)
         {

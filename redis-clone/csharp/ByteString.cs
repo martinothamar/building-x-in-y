@@ -5,11 +5,11 @@ using System.Text;
 
 namespace RedisClone;
 
-internal readonly unsafe struct ByteString : IEquatable<ByteString>, IDisposable
+internal unsafe struct ByteString : IEquatable<ByteString>, IDisposable
 {
-    private readonly byte* _buf;
-    private readonly int _len;
-    private readonly bool _owned;
+    private byte* _buf;
+    private int _len;
+    private bool _owned;
 
     public readonly int Length => _len;
 
@@ -24,41 +24,47 @@ internal readonly unsafe struct ByteString : IEquatable<ByteString>, IDisposable
         _owned = owned;
     }
 
-    public override string ToString() => Encoding.ASCII.GetString(_buf, _len);
+    public override readonly string ToString() => Encoding.ASCII.GetString(_buf, _len);
 
-    public override bool Equals([NotNullWhen(true)] object? obj) => obj is ByteString other && Equals(other);
+    public override readonly bool Equals([NotNullWhen(true)] object? obj) => obj is ByteString other && Equals(other);
 
-    public override int GetHashCode()
+    public override readonly int GetHashCode()
     {
         HashCode hash = default;
-        hash.AddBytes(new ReadOnlySpan<byte>(_buf, _len));
+        hash.AddBytes(Span);
         return hash.ToHashCode();
     }
 
-    public bool Equals(ByteString other) =>
-        new ReadOnlySpan<byte>(_buf, _len).SequenceEqual(new ReadOnlySpan<byte>(other._buf, other._len));
-
-    public static ByteString CopyFrom(byte* origBuf, int len)
-    {
-        var buf = (byte*)NativeMemory.Alloc((nuint)len);
-        new ReadOnlySpan<byte>(origBuf, len).CopyTo(new Span<byte>(buf, len));
-
-        return new ByteString(buf, len, owned: true);
-    }
-
-    public static ByteString CopyFrom(ReadOnlySpan<byte> buf) =>
-        CopyFrom((byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(buf)), buf.Length);
-
-    public static ByteString BorrowFrom(byte* buf, int len) => new ByteString(buf, len, owned: false);
+    public readonly bool Equals(ByteString other) => Span.SequenceEqual(other.Span);
 
     public static ByteString BorrowFrom(ReadOnlySpan<byte> buf) =>
         new ByteString((byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(buf)), buf.Length, owned: false);
 
-    public ByteString Copy() => CopyFrom(_buf, _len);
+    public void Copy()
+    {
+        Assert(!_owned, "Copying only makes sense for borrowed strings");
+        var ptr = (byte*)NativeMemory.Alloc((nuint)_len);
+        Assert(ptr is not null, "Allocation should succeed");
+        Span.CopyTo(new Span<byte>(ptr, _len));
+        _buf = ptr;
+        _owned = true;
+    }
+
+    public void CopyFrom(in ByteString source)
+    {
+        Assert(source._len <= _len, "Must fit within buffer");
+        Assert(_owned && !source._owned, "Buffer must be owned, while soure should be borrowed");
+        source.Span.CopyTo(new Span<byte>(_buf, source._len));
+        _len = source._len;
+    }
 
     public void Dispose()
     {
+        Assert(_buf is not null, "buffer should be allocated");
         if (_owned)
             NativeMemory.Free(_buf);
+        _buf = null;
+        _len = default;
+        _owned = default;
     }
 }

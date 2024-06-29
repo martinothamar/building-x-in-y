@@ -4,13 +4,20 @@ using System.Text;
 
 namespace RedisClone;
 
-internal unsafe struct Command : IDisposable
+internal unsafe struct Command
 {
     private CommandArg* _ptr;
     public int Capacity { get; private set; }
     public int Length { get; private set; }
 
-    public readonly ref CommandArg this[int index] => ref Unsafe.AsRef<CommandArg>(_ptr + index);
+    public readonly ref CommandArg this[int index]
+    {
+        get
+        {
+            Assert(index < Length, "Bounds check");
+            return ref Unsafe.AsRef<CommandArg>(_ptr + index);
+        }
+    }
 
     private Command(CommandArg* ptr, int capacity)
     {
@@ -28,18 +35,10 @@ internal unsafe struct Command : IDisposable
         *(_ptr + Length++) = arg;
     }
 
-    public static Command Allocate(int capacity)
+    public static Command Allocate(ArenaAllocator allocator, int capacity)
     {
-        var ptr = (CommandArg*)NativeMemory.AlignedAlloc((nuint)(sizeof(CommandArg) * capacity), 64);
+        var ptr = allocator.AllocatePtr<CommandArg>(capacity);
         return new Command(ptr, capacity);
-    }
-
-    public readonly void Dispose()
-    {
-        if (_ptr is not null)
-        {
-            NativeMemory.AlignedFree(_ptr);
-        }
     }
 }
 
