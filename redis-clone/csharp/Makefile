@@ -14,8 +14,15 @@ build:
 
 .PHONY: bench
 bench:
-	redis-benchmark -t ping,get,set --threads 3 -c 128 -n 1000000
+	redis-benchmark -t get,set --threads 8 -c 128 -n 1000000
+
+profile: export DOTNET_EnableEventLog=0
+profile: export DOTNET_PerfMapEnabled=1
+profile: export DOTNET_EnableWriteXorExecute=0
 
 .PHONY: profile
-profile:
-	dottrace start --profiling-type=Timeline --framework=NetCore ./src/bin/Release/net8.0/RedisClone
+profile: build
+	perf record -F 99 -g -e cycles:u -- ./src/bin/Release/net8.0/RedisClone
+
+profile-analyze:
+	perf report -g

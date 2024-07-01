@@ -6,7 +6,13 @@ internal unsafe struct CommandBuffer
 {
     private const int Capacity = 1024 * 4;
     private Command* _ptr;
-    public int Length { get; private set; }
+    public int Length
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private set;
+    }
 
     private CommandBuffer(Command* ptr)
     {

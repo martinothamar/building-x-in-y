@@ -7,11 +7,24 @@ namespace RedisClone;
 internal unsafe struct Command
 {
     private CommandArg* _ptr;
-    public int Capacity { get; private set; }
-    public int Length { get; private set; }
+    public int Capacity
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private set;
+    }
+    public int Length
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private set;
+    }
 
     public readonly ref CommandArg this[int index]
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get
         {
             Assert(index < Length, "Bounds check");
