@@ -27,6 +27,16 @@ internal static class RespParser
                         return false;
                     break;
                 }
+                case (byte)'P':
+                {
+                    Assert(data.SequenceEqual("PING\r\n"u8), "Invalid command");
+                    ref var cmd = ref commandBuffer.Add();
+                    cmd = Command.Allocate(allocator, 1);
+                    var arg = new CommandArg(data.Slice(0, "PING"u8.Length), ValueKind.BulkString);
+                    cmd.Add(ref arg);
+                    data = data.Slice("PING\r\n"u8.Length);
+                    break;
+                }
                 default:
                     Assert(false, "fallthrough case, invalid root type");
                     return false;

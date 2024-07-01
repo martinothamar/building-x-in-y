@@ -470,3 +470,8 @@ flyio-gossip-glomers/**/store/
 .direnv/
 
 image.ppm
+
+*.nettrace
+*.dtt*
+*.speedscope.json
+*.chromium.json
