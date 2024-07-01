@@ -66,7 +66,7 @@ internal static class Simulation
 {
     internal const double HomeAdvantage = 0.25;
 
-    unsafe public static void Run(ref State state)
+    public static unsafe void Run(ref State state)
     {
         ref var rng = ref state.Rng;
         var scores = state.Scores;

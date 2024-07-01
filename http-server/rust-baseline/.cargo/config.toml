@@ -1,0 +1,3 @@
+[build]
+rustflags = ["-C", "target-cpu=native", "-Z", "tune-cpu=native", "--cfg", "uuid_unstable"]
+# , "-C", "llvm-args=-align-all-blocks=5"

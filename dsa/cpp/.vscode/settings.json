@@ -75,20 +75,6 @@
         "print": "cpp",
         "queue": "cpp"
     },
-    "rust-analyzer.checkOnSave": true,
-    "rust-analyzer.check.command": "clippy",
-    "[rust]": {
-        "editor.formatOnSave": true,
-    },
-    "[yaml]": {
-        "editor.defaultFormatter": "redhat.vscode-yaml",
-        "editor.formatOnSave": true
-    },
-    "[csharp]": {
-        "editor.formatOnSave": true,
-        "editor.defaultFormatter": "csharpier.csharpier-vscode"
-    },
-    "dotnet.defaultSolution": "disable",
     "[cpp]": {
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "xaver.clang-format",

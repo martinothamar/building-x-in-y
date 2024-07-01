@@ -1,4 +1,3 @@
-#![feature(lazy_cell)]
 #![feature(let_chains)]
 #![feature(portable_simd)]
 #![feature(iter_repeat_n)]
@@ -36,11 +35,15 @@ impl Expression {
                 Node::Operand => result.push(*op),
                 Node::LeftParens => stack.push(*op),
                 Node::RightParens => {
-                    while let Some(n) = stack.last() && *n != Node::LeftParens {
+                    while let Some(n) = stack.last()
+                        && *n != Node::LeftParens
+                    {
                         result.push(stack.pop().unwrap());
                     }
 
-                    if let Some(n) = stack.last() && *n != Node::LeftParens {
+                    if let Some(n) = stack.last()
+                        && *n != Node::LeftParens
+                    {
                         return Err(ExpressionConstructionError::UbalancedParens);
                     }
 
@@ -51,7 +54,9 @@ impl Expression {
                 }
                 Node::Operator(_) => {
                     let prec = precedence::precedence(*op);
-                    while let Some(n) = stack.last() && prec <= precedence::precedence(*n) {
+                    while let Some(n) = stack.last()
+                        && prec <= precedence::precedence(*n)
+                    {
                         result.push(stack.pop().unwrap());
                     }
 

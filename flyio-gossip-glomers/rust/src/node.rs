@@ -75,8 +75,8 @@ impl Topology {
     pub fn get_all_other_nodes(&self) -> Vec<String> {
         self.topology
             .keys()
+            .filter(|&n| n != self.id.0.as_ref().unwrap())
             .cloned()
-            .filter(|n| n != self.id.0.as_ref().unwrap())
             .collect()
     }
 
