@@ -37,6 +37,8 @@ internal unsafe struct ByteString : IEquatable<ByteString>, IDisposable
 
     public readonly bool Equals(ByteString other) => Span.SequenceEqual(other.Span);
 
+    public readonly bool RefEquals(ref ByteString other) => Span.SequenceEqual(other.Span);
+
     public static ByteString BorrowFrom(ReadOnlySpan<byte> buf) =>
         new ByteString((byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(buf)), buf.Length, owned: false);
 
@@ -50,7 +52,7 @@ internal unsafe struct ByteString : IEquatable<ByteString>, IDisposable
         _owned = true;
     }
 
-    public void CopyFrom(in ByteString source)
+    public void CopyFrom(ref ByteString source)
     {
         Assert(source._len <= _len, "Must fit within buffer");
         Assert(_owned && !source._owned, "Buffer must be owned, while soure should be borrowed");

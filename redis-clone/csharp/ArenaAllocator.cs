@@ -13,6 +13,17 @@ internal sealed unsafe class ArenaAllocator : IDisposable
     private byte* _buffer;
     private nuint _capacity;
     private nuint _currentOffset;
+    private readonly bool _isGrowable;
+
+    public int Capacity => (int)_capacity;
+
+    private ArenaAllocator(byte* buffer, nuint capacity, bool isGrowable)
+    {
+        _buffer = buffer;
+        _capacity = capacity;
+        _currentOffset = 0;
+        _isGrowable = isGrowable;
+    }
 
     public UnmanagedMemoryManager<T> Allocate<T>(int length)
         where T : unmanaged
@@ -28,16 +39,32 @@ internal sealed unsafe class ArenaAllocator : IDisposable
         Assert(length is > 0, "Number of elements allocated must be greater than 0");
 
         var currPtr = (nuint)_buffer + _currentOffset;
-        var alignment = Alignment<T>();
+        var alignment = Structures.Alignment<T>();
         var offset = AlignForward(currPtr, alignment);
         offset -= (nuint)_buffer;
 
         var size = (nuint)sizeof(T) * (nuint)length;
-        Assert(offset + size <= _capacity, "Allocation fits arena");
+        var allocationFits = offset + size <= _capacity;
+        Assert(_isGrowable || allocationFits, "Allocation fits arena, or arena is growable");
+        if (!allocationFits)
+            Grow();
 
         var ptr = _buffer + offset;
         _currentOffset = offset + size;
         return (T*)ptr;
+    }
+
+    private void Grow()
+    {
+        var newCapacity = _capacity * 2;
+        Assert(newCapacity <= MaxSize, "Must not exceed max capacity");
+        Assert(_buffer is not null, "Buffer must be allocated");
+        Assert(_isGrowable, "Arena must be growable");
+
+        var buffer = (byte*)NativeMemory.AlignedRealloc(_buffer, newCapacity, 4096);
+        _buffer = buffer;
+        _capacity = newCapacity;
+        Assert(buffer is not null, "Allocation should always succeed");
     }
 
     public void Reset()
@@ -47,20 +74,13 @@ internal sealed unsafe class ArenaAllocator : IDisposable
         _currentOffset = 0;
     }
 
-    private ArenaAllocator(byte* buffer, nuint capacity)
-    {
-        _buffer = buffer;
-        _capacity = capacity;
-        _currentOffset = 0;
-    }
-
-    public static ArenaAllocator Allocate(int capacity = 1024 * 1024)
+    public static ArenaAllocator Allocate(int capacity = 1024 * 1024, bool isGrowable = false)
     {
         Assert(capacity is >= MinSize and <= MaxSize, "Capacity must be between 1KB and 128MB");
         Assert(BitOperations.IsPow2(capacity), "Capacity must be a power of 2");
         var buffer = NativeMemory.AlignedAlloc((nuint)capacity, 4096);
         Assert(buffer is not null, "Allocation should always succeed");
-        return new ArenaAllocator((byte*)buffer, (nuint)capacity);
+        return new ArenaAllocator((byte*)buffer, (nuint)capacity, isGrowable);
     }
 
     private static nuint AlignForward(nuint ptr, int align)
@@ -87,26 +107,6 @@ internal sealed unsafe class ArenaAllocator : IDisposable
             p += a - modulo;
         }
         return p;
-    }
-
-    private struct AlignmentStruct<T>
-        where T : unmanaged
-    {
-#pragma warning disable CS0169 // Field is never used
-        T value;
-        byte b;
-#pragma warning restore CS0169
-    }
-
-    private static int Alignment<T>()
-        where T : unmanaged
-    {
-        var alignment = sizeof(AlignmentStruct<T>) - sizeof(T);
-        Assert(
-            alignment is > 0 and <= 256 && BitOperations.IsPow2(alignment),
-            "Alignment must be between 1 and 256 and be a power of 2"
-        );
-        return alignment;
     }
 
     public void Dispose()

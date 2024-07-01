@@ -270,7 +270,7 @@ public sealed class Server : IDisposable
         var keyValue = ByteString.BorrowFrom(cmd[1].Span);
         if (_storage.TryGetValue(ref keyValue, out var value))
         {
-            RespWriter.WriteBulkString(ref outbox, in value);
+            RespWriter.WriteBulkString(ref outbox, ref value);
         }
         else
         {

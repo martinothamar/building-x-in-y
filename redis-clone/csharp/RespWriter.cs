@@ -6,7 +6,7 @@ internal static class RespWriter
 {
     private static ReadOnlySpan<byte> CRLF => "\r\n"u8;
 
-    public static void WriteBulkString(ref Span<byte> outbox, in ByteString value)
+    public static void WriteBulkString(ref Span<byte> outbox, ref ByteString value)
     {
         var outboxIndex = 0;
         outbox[outboxIndex++] = (byte)'$';
@@ -15,13 +15,13 @@ internal static class RespWriter
             "write len bytes for string"
         );
         outboxIndex += lenBytes;
-        outbox[outboxIndex++] = (byte)'\r';
-        outbox[outboxIndex++] = (byte)'\n';
+        CRLF.CopyTo(outbox.Slice(outboxIndex));
+        outboxIndex += CRLF.Length;
         var valueSpan = value.Span;
         valueSpan.CopyTo(outbox.Slice(outboxIndex));
         outboxIndex += valueSpan.Length;
-        outbox[outboxIndex++] = (byte)'\r';
-        outbox[outboxIndex++] = (byte)'\n';
+        CRLF.CopyTo(outbox.Slice(outboxIndex));
+        outboxIndex += CRLF.Length;
         outbox = outbox.Slice(outboxIndex);
     }
 }
