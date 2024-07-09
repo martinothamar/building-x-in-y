@@ -470,3 +470,6 @@ flyio-gossip-glomers/**/store/
 .direnv/
 
 image.ppm
+
+zig-out/
+.zig-cache/

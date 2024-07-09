@@ -1,0 +1,6 @@
+{
+    "recommendations": [
+        "ziglang.vscode-zig",
+        "vadimcn.vscode-lldb"
+    ]
+}

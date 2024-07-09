@@ -1,0 +1,10 @@
+{
+    "zig.zls.path": "/home/linuxbrew/.linuxbrew/bin/zls",
+    "zig.path": "/home/linuxbrew/.linuxbrew/bin/zig",
+    "zig.zls.enableBuildOnSave": true,
+    "zig.zls.buildOnSaveStep": "install",
+    "[zig]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "ziglang.vscode-zig"
+    }
+}
