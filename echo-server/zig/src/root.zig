@@ -11,11 +11,11 @@ const queue_size = 1024;
 const recv_bgid = 1;
 const send_bgid = 2;
 
-// Available from kernel 6.10 (I have 6.9 currently :()
+// Available from kernel 6.10, but is not in Zig yet
 const IORING_FEAT_SEND_BUF_SELECT = 1 << 14;
 
 comptime {
-    // Want to use high perf Linux API such as IoUring
+    // Want to use high perf Linux API such as IO uring
     assert(builtin.target.os.tag == .linux);
 }
 
@@ -27,7 +27,7 @@ const OpType = enum(u8) {
     close = 4,
 };
 
-// Struct used as 'user_data' in IoUring, which is u64-sized
+// Struct used as 'user_data' in IO uring, which is u64-sized
 const Op = packed struct(u64) {
     type: OpType,
     fd: posix.fd_t,
@@ -44,7 +44,7 @@ const Op = packed struct(u64) {
     }
 
     comptime {
-        // Operations are encoded as userdata in the IO Uring submission queue entries
+        // Operations are encoded as userdata in the IO uring submission queue entries
         // which are u64, and so we verify that here
         const UserDataField: std.builtin.Type.StructField = std.meta.fieldInfo(linux.io_uring_sqe, .user_data);
         assert(UserDataField.type == @typeInfo(Op).Struct.backing_integer orelse unreachable);
@@ -54,8 +54,9 @@ const Op = packed struct(u64) {
 };
 
 pub const Server = struct {
+    // Parameters for the ring provided buffers for IO uring
     const buffer_count = 128;
-    const buffer_size = 1024 * 32;
+    const buffer_size = 1024 * 16;
 
     host: []const u8,
     port: u16,
@@ -153,45 +154,33 @@ pub const Server = struct {
                             assert(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
                             const buffer_id = cqe.buffer_id() catch unreachable;
                             const source_buffer = self.buffers_recv.get(buffer_id)[0..len];
-                            defer self.buffers_recv.put(buffer_id);
                             std.log.info("[{}] recv: len={}, payload='{s}'", .{ op.fd, len, source_buffer });
-                            const slab = slabs.alloc();
-                            const send_buffer = slab.buffer[0..len];
-                            @memcpy(send_buffer, source_buffer);
+
+                            self.buffers_send.putBuffer(buffer_id, source_buffer);
                             const op_send: Op = .{
                                 .type = .send,
                                 .fd = op.fd,
-                                .buffer_id = slab.id,
+                                .buffer_id = buffer_id,
                                 ._padding = undefined,
                             };
-                            _ = try self.ring.send(op_send.asU64(), op.fd, send_buffer, 0);
-
-                            // self.buffers_send.putBuffer(buffer_id, buffer);
-                            // const op_send: Op = .{
-                            //     .type = .SEND,
-                            //     .fd = op.fd,
-                            //     .buffer_id = buffer_id,
-                            //     ._padding = undefined,
-                            // };
-                            // var sqe = try self.ring.get_sqe();
-                            // sqe.prep_rw(.SEND, op.fd, 0, len, 0);
-                            // sqe.rw_flags = linux.MSG.WAITALL | linux.MSG.NOSIGNAL;
-                            // sqe.flags = 0;
-                            // sqe.flags |= linux.IOSQE_BUFFER_SELECT;
-                            // sqe.buf_index = self.buffers_send.group_id;
-                            // sqe.user_data = op_send.asU64();
+                            var sqe = try self.ring.get_sqe();
+                            sqe.prep_rw(.SEND, op.fd, 0, 0, 0);
+                            sqe.rw_flags = linux.MSG.WAITALL | linux.MSG.NOSIGNAL;
+                            sqe.flags = 0;
+                            sqe.flags |= linux.IOSQE_BUFFER_SELECT;
+                            sqe.buf_index = self.buffers_send.group_id;
+                            sqe.user_data = op_send.asU64();
                         }
                     },
                     .send => {
                         assertCqe(&cqe);
-                        // assert(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
-                        // const buffer_id = try cqe.buffer_id();
-                        // assert(op.buffer_id < self.buffers_recv.buffers_count);
-                        // assert(buffer_id == op.buffer_id);
-                        slabs.dealloc(op.buffer_id);
+                        assert(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
+                        const buffer_id = try cqe.buffer_id();
+                        assert(op.buffer_id < self.buffers_recv.buffers_count);
+                        assert(buffer_id == op.buffer_id);
                         const len: usize = @intCast(cqe.res);
                         std.log.info("[{}] send: len={}", .{ op.fd, len });
-                        // self.buffers_recv.put(buffer_id);
+                        self.buffers_recv.put(buffer_id);
                     },
                     .close => {
                         assertCqe(&cqe);
@@ -228,14 +217,14 @@ pub const Server = struct {
 
     fn init_ring(self: *Server) !void {
         var params = std.mem.zeroes(linux.io_uring_params);
-        params.flags |= linux.IORING_SETUP_SINGLE_ISSUER | linux.IORING_SETUP_CLAMP;
+        params.flags |= linux.IORING_SETUP_SINGLE_ISSUER;
+        params.flags |= linux.IORING_SETUP_CLAMP;
         params.flags |= linux.IORING_SETUP_CQSIZE;
         params.flags |= linux.IORING_SETUP_DEFER_TASKRUN;
         params.cq_entries = queue_size;
 
         self.ring = try linux.IoUring.init_params(queue_size, &params);
-        // Need 6.10 kernel
-        // assert(params.features & IORING_FEAT_SEND_BUF_SELECT == IORING_FEAT_SEND_BUF_SELECT);
+        assert(params.features & IORING_FEAT_SEND_BUF_SELECT == IORING_FEAT_SEND_BUF_SELECT);
 
         try self.io_uring_register_files_sparse(4);
         try self.io_uring_register_ring_fd();
@@ -398,6 +387,7 @@ const BufferGroup = struct {
     }
 };
 
+// Not currently used
 const SlabAllocator = struct {
     const sentinel: u16 = std.math.maxInt(u16);
 
@@ -506,7 +496,8 @@ fn unreachableWith(comptime format: []const u8, args: anytype) void {
 }
 
 test "init" {
-    var server = Server.init("127.0.0.1", null);
+    const allocator = std.testing.allocator;
+    var server = Server.init("127.0.0.1", null, allocator);
     try server.run();
     defer server.deinit();
 }
