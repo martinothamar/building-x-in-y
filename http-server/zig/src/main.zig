@@ -1,5 +1,6 @@
 const std = @import("std");
 const lib = @import("root.zig");
+const Server = lib.server.Server;
 const assert = std.debug.assert;
 
 pub fn main() !void {
@@ -12,7 +13,7 @@ pub fn main() !void {
     }
 
     const allocator = gpa.allocator();
-    var server = try lib.Server.init("127.0.0.1", null, &allocator);
+    var server = try Server.init("127.0.0.1", null, &allocator);
     defer server.deinit();
-    try server.run();
+    server.run();
 }

@@ -2,6 +2,8 @@ pub const IoUring = @import("IoUring.zig");
 const std = @import("std");
 const linux = std.os.linux;
 const posix = std.posix;
+const assertion = @import("../assertion.zig");
+const unreachableWith = assertion.unreachableWith;
 
 pub fn io_uring_register_files_sparse(ring: *linux.IoUring, nr: u32) !void {
     var reg = std.mem.zeroes(linux.io_uring_rsrc_register);
@@ -12,7 +14,7 @@ pub fn io_uring_register_files_sparse(ring: *linux.IoUring, nr: u32) !void {
     switch (linux.E.init(ret)) {
         .SUCCESS => {},
         .MFILE => return error.ProcessFdQuotaExceeded,
-        else => |errno| return posix.unexpectedErrno(errno),
+        else => |errno| unreachableWith("register file error: {}", .{errno}),
     }
 }
 
@@ -27,7 +29,7 @@ pub fn io_uring_register_ring_fd(ring: *linux.IoUring) !void {
     const ret = do_register(ring, linux.IORING_REGISTER.REGISTER_RING_FDS, &reg, 1);
     switch (linux.E.init(ret)) {
         .SUCCESS => {},
-        else => |errno| return posix.unexpectedErrno(errno),
+        else => |errno| unreachableWith("register ring fd error: {}", .{errno}),
     }
 }
 
