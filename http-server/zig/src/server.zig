@@ -13,18 +13,12 @@ const posix = std.posix;
 const BufferGroupRecv = linux.IoUring.BufferGroup;
 const BufferGroupSend = linuxext.IoUring.BufferGroupSend;
 const HttpServer = std.http.Server;
+const datetime = @import("datetime.zig");
 
 const queue_size = 1024;
 
 const recv_bgid = 1;
 const send_bgid = 2;
-
-// Available from kernel 6.10, but is not in Zig yet
-// also covers recv/send bundles. This is currently the newest kernel feature used.
-const IORING_FEAT_SEND_BUF_SELECT = 1 << 14;
-
-// Not in Zig yet
-const IORING_RECVSEND_BUNDLE = 1 << 4;
 
 comptime {
     // Want to use high perf Linux API such as IO uring,
@@ -67,20 +61,32 @@ const Op = packed struct(u64) {
 };
 
 pub const Server = struct {
-    host: []const u8,
+    host: []const u8 align(std.atomic.cache_line),
     port: u16,
 
     threads: []*ServerThread,
     allocator: *const std.mem.Allocator,
 
     start_signal: std.Thread.ResetEvent,
+    shutting_down: bool,
+
+    current_time_str_buffer_1: [64]u8,
+    current_time_str_buffer_2: [64]u8,
+    current_time_str_buffer_3: [64]u8,
+    current_time_str_buffer_4: [64]u8,
+    current_time_str: []const u8,
+    current_time_str_ref: ?*[]const u8,
+
+    comptime {
+        assert(@alignOf(@This()) == std.atomic.cache_line);
+    }
 
     pub fn init(host: []const u8, port: ?u16, allocator: *const std.mem.Allocator) !*Server {
         const self = try allocator.create(Server);
         errdefer allocator.destroy(self);
 
         var cpus = try std.Thread.getCpuCount();
-        cpus /= 2;
+        cpus /= 1;
 
         const threads = try allocator.alloc(*ServerThread, cpus);
         errdefer allocator.free(threads);
@@ -95,7 +101,17 @@ pub const Server = struct {
             .allocator = allocator,
 
             .start_signal = std.Thread.ResetEvent{},
+            .shutting_down = false,
+
+            .current_time_str_buffer_1 = undefined,
+            .current_time_str_buffer_2 = undefined,
+            .current_time_str_buffer_3 = undefined,
+            .current_time_str_buffer_4 = undefined,
+            .current_time_str = undefined,
+            .current_time_str_ref = null,
         };
+
+        try self.handle_signal();
 
         for (0..cpus) |cpu| {
             const thread = try ServerThread.init(cpu, self);
@@ -106,17 +122,114 @@ pub const Server = struct {
     }
 
     pub fn deinit(self: *Server) void {
+        if (SignalHandler.shutting_down) |shutdown| {
+            if (shutdown == &self.shutting_down) {
+                SignalHandler.shutting_down = null;
+            }
+        }
+        for (self.threads) |thread| {
+            thread.deinit();
+        }
         self.allocator.free(self.threads);
-        self.allocator.destroy(self);
+        const allocator = self.allocator.*;
+        self.* = undefined;
+        allocator.destroy(self);
     }
 
-    pub fn run(self: *Server) void {
+    pub fn run(self: *Server) !void {
         std.time.sleep(std.time.ns_per_s * 1);
+
+        try self.update_timestamp();
+
         self.start_signal.set();
+
+        while (!self.shutting_down) {
+            std.time.sleep(std.time.ns_per_s * 1);
+            try self.update_timestamp();
+        }
+
+        std.log.info("Shutting down, waiting for threads to exit", .{});
+
         for (self.threads) |thread| {
             assert(thread.thread != null);
             thread.thread.?.join();
         }
+
+        std.log.info("Done!", .{});
+    }
+
+    fn handle_signal(self: *Server) !void {
+        SignalHandler.shutting_down = &self.shutting_down;
+        const act = posix.Sigaction{
+            .handler = .{ .sigaction = SignalHandler.handle },
+            .mask = posix.empty_sigset,
+            .flags = 0,
+        };
+        var oact: posix.Sigaction = undefined;
+        try posix.sigaction(posix.SIG.INT, &act, &oact);
+        SignalHandler.original_handler = oact.handler.sigaction;
+    }
+
+    const SignalHandler = struct {
+        const Self = @This();
+        var shutting_down: ?*bool = null;
+
+        var original_handler: ?*const fn (
+            i32,
+            *const posix.siginfo_t,
+            ?*anyopaque,
+        ) callconv(.C) void = null;
+
+        fn handle(sig: i32, info: *const posix.siginfo_t, o: ?*anyopaque) callconv(.C) void {
+            assert(sig == posix.SIG.INT);
+            std.log.info("Received SIGINT", .{});
+            if (Self.shutting_down) |shutdown| {
+                std.log.info("Signaled exit", .{});
+                shutdown.* = true;
+            }
+
+            if (Self.original_handler) |orig_handler| {
+                orig_handler(sig, info, o);
+            }
+        }
+    };
+
+    fn update_timestamp(self: *Server) !void {
+        var ts: posix.timespec = undefined;
+        try posix.clock_gettime(posix.CLOCK.REALTIME, &ts);
+        const dt = datetime.DateTime.init(&ts);
+        // Date: <day-name>, <day> <month> <year> <hour>:<minute>:<second> GMT
+        // Date: Wed, 21 Oct 2015 07:28:00 GMT
+
+        var buffer: *[64]u8 = undefined;
+        if (self.current_time_str_ref) |current_time_str_ref| {
+            if (current_time_str_ref.ptr == &self.current_time_str_buffer_1) {
+                buffer = &self.current_time_str_buffer_2;
+            } else if (current_time_str_ref.ptr == &self.current_time_str_buffer_2) {
+                buffer = &self.current_time_str_buffer_3;
+            } else if (current_time_str_ref.ptr == &self.current_time_str_buffer_3) {
+                buffer = &self.current_time_str_buffer_4;
+            } else {
+                buffer = &self.current_time_str_buffer_1;
+            }
+        } else {
+            buffer = &self.current_time_str_buffer_1;
+        }
+
+        self.current_time_str = try std.fmt.bufPrint(
+            buffer[0..],
+            "Date: {s}, {d:0>2} {s} {} {d:0>2}:{d:0>2}:{d:0>2} GMT\r\n",
+            .{
+                dt.day_name[0..3],
+                dt.day,
+                dt.month_name[0..3],
+                dt.year,
+                dt.hour,
+                dt.minute,
+                dt.second,
+            },
+        );
+        self.current_time_str_ref = &self.current_time_str;
     }
 };
 
@@ -142,6 +255,7 @@ const ServerThread = struct {
     slabs: alloc.SlabAllocator,
 
     ring: linux.IoUring,
+    ring_fd_offset: u32,
     buffers_recv: BufferGroupRecv,
 
     comptime {
@@ -167,6 +281,7 @@ const ServerThread = struct {
             .slabs = undefined,
 
             .ring = undefined,
+            .ring_fd_offset = undefined,
             .buffers_recv = undefined,
         };
         errdefer {
@@ -197,7 +312,9 @@ const ServerThread = struct {
         self.slabs.deinit();
         const alloc_check = self.thread_allocator.deinit();
         assert(alloc_check == .ok);
-        self.root_allocator.destroy(self);
+        const root_allocator = self.root_allocator.*;
+        self.* = undefined;
+        root_allocator.destroy(self);
     }
 
     fn run(self: *ServerThread) !void {
@@ -208,22 +325,53 @@ const ServerThread = struct {
         std.log.debug("[{s}] Starting", .{self.thread_name});
 
         self.listener_fd = try self.setup_listener_socket();
-        std.log.info("Setup server socket - addr={s} {} fd={}", .{ self.host, self.port, self.listener_fd });
+        std.log.info("[{s}] Setup server socket - addr={s} {} fd={}", .{ self.thread_name, self.host, self.port, self.listener_fd });
 
         try self.init_ring();
-        std.log.info("Initialized IOUring", .{});
+        std.log.info("[{s}] Initialized IOUring", .{self.thread_name});
 
         self.buffers_recv = try self.alloc_buffer_group(recv_bgid);
-        std.log.info("Setup provided buffer rings", .{});
+        std.log.info("[{s}] Setup provided buffer rings", .{self.thread_name});
 
         const op_accept: Op = .{ .type = .accept, .fd = self.listener_fd, .buffer_id = undefined, ._padding = undefined };
         _ = try self.ring.accept_multishot(op_accept.asU64(), self.listener_fd, null, null, 0);
-        std.log.info("Submitted multishot accept", .{});
+        std.log.info("[{s}] Submitted multishot accept", .{self.thread_name});
+
+        const wait = linux.kernel_timespec{
+            .tv_sec = 1,
+            .tv_nsec = 0,
+        };
 
         var cqes: [256]linux.io_uring_cqe = undefined;
-        while (true) {
+        loop: while (!self.server.shutting_down) {
             // std.log.debug("Waiting...", .{});
-            _ = try self.ring.submit_and_wait(1);
+            // _ = self.ring.submit_and_wait(1) catch |err| switch (err) {
+            //     error.SignalInterrupt => break :loop,
+            //     error.RingShuttingDown => break :loop,
+            //     else => unreachableWith("Unhandled error from IO Uring enter: {}", .{err}),
+            // };
+            const submitted = self.ring.flush_sq();
+            // const res = linux.io_uring_enter(
+            //     @intCast(self.ring_fd_offset),
+            //     submitted,
+            //     1,
+            //     linux.IORING_ENTER_GETEVENTS | linux.IORING_ENTER_REGISTERED_RING,
+            //     null,
+            // );
+            const res = linuxext.io_uring_submit_and_wait_timeout(
+                @intCast(self.ring_fd_offset),
+                submitted,
+                1,
+                &wait,
+                null,
+            );
+
+            switch (linux.E.init(res)) {
+                .SUCCESS => {},
+                .INTR => break :loop,
+                .NXIO => break :loop,
+                else => |err| unreachableWith("Unhandled error from IO Uring enter: {}", .{err}),
+            }
             assert(self.ring.cq.overflow.* == 0);
             assert((self.ring.sq.flags.* & linux.IORING_SQ_CQ_OVERFLOW) == 0);
 
@@ -233,8 +381,6 @@ const ServerThread = struct {
 
             for (cqes[0..completed]) |cqe| {
                 const op = Op.read(cqe.user_data);
-                const op_buffer_id = op.buffer_id;
-                _ = op_buffer_id;
                 // std.log.debug("Op: {any}", .{op});
                 switch (op.type) {
                     .accept => {
@@ -246,7 +392,7 @@ const ServerThread = struct {
                         const op_recv: Op = .{
                             .type = .recv,
                             .fd = client_fd,
-                            .buffer_id = 0,
+                            .buffer_id = undefined,
                             ._padding = undefined,
                         };
 
@@ -260,9 +406,8 @@ const ServerThread = struct {
                         sqe.user_data = op_recv.asU64();
                     },
                     .recv => {
-                        assertCqe(&cqe);
                         assert(op.fd >= 0);
-                        if (cqe.res == 0) {
+                        if (cqe.res == 0 or cqe.err() == linux.E.CONNRESET) {
                             // std.log.info("[{}] recv: len=0", .{op.fd});
                             const op_close: Op = .{
                                 .type = .close,
@@ -272,6 +417,7 @@ const ServerThread = struct {
                             };
                             _ = try self.ring.close(op_close.asU64(), op.fd);
                         } else {
+                            assertCqe(&cqe);
                             const len: usize = @intCast(cqe.res);
                             assert(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
                             const recv_buffer_id = cqe.buffer_id() catch unreachable;
@@ -285,9 +431,8 @@ const ServerThread = struct {
                             const slab = try self.slabs.alloc();
                             const send_buffer_id = slab.id;
                             var send_buffer = std.ArrayListAlignedUnmanaged(u8, std.mem.page_size).initBuffer(slab.buffer);
-                            write_response(&head, &send_buffer);
+                            self.write_response(&head, &send_buffer);
 
-                            // self.buffers_send.put(send_buffer_id, send_buffer.items);
                             const op_send: Op = .{
                                 .type = .send,
                                 .fd = op.fd,
@@ -297,22 +442,11 @@ const ServerThread = struct {
                             var sqe = try self.ring.get_sqe();
                             sqe.prep_rw(.SEND, op.fd, @intFromPtr(send_buffer.items.ptr), send_buffer.items.len, 0);
                             sqe.rw_flags = linux.MSG.WAITALL | linux.MSG.NOSIGNAL;
-                            // sqe.ioprio |= IORING_RECVSEND_BUNDLE;
-                            // sqe.flags |= linux.IOSQE_BUFFER_SELECT;
-                            // sqe.buf_index = self.buffers_send.group_id;
                             sqe.user_data = op_send.asU64();
                         }
                     },
                     .send => {
-                        // if (cqe.err() == linux.E.NOBUFS) {
-                        //     unreachableWith("No more buffers - sends={}/{}, send_buf_id={}", .{ sends_acked, sends, prev_send_buffer_id });
-                        // }
                         assertCqe(&cqe);
-                        // assert(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
-                        // const buffer_id = cqe.buffer_id() catch unreachable;
-                        // assert(buffer_id == op.buffer_id);
-                        // const len: usize = @intCast(cqe.res);
-                        // std.log.info("[{}] send: len={}", .{ op.fd, len });
                         self.slabs.dealloc(op.buffer_id);
                     },
                     .close => {
@@ -323,9 +457,9 @@ const ServerThread = struct {
                     else => unreachable,
                 }
             }
-
-            // self.buffers_send.maybeCommitBuffers();
         }
+
+        std.log.info("[{s}] Exiting thread...", .{self.thread_name});
     }
 
     fn parse_request(buffer: []const u8) !HttpServer.Request.Head {
@@ -334,18 +468,28 @@ const ServerThread = struct {
         return head;
     }
 
-    fn write_response(head: *const HttpServer.Request.Head, writer: *std.ArrayListAlignedUnmanaged(u8, std.mem.page_size)) void {
+    fn write_response(
+        self: *ServerThread,
+        head: *const HttpServer.Request.Head,
+        writer: *std.ArrayListAlignedUnmanaged(u8, std.mem.page_size),
+    ) void {
         assert(writer.items.len == 0);
         if (head.method == std.http.Method.GET and std.mem.endsWith(u8, head.target, "/plaintext")) {
             writer.appendSliceAssumeCapacity("HTTP/1.1 200 OK\r\n");
             writer.appendSliceAssumeCapacity("Server: Z\r\n");
+            const current_time = (self.server.current_time_str_ref orelse unreachable).*;
+            writer.appendSliceAssumeCapacity(current_time);
+            assert(std.mem.endsWith(u8, writer.items, "GMT\r\n"));
             writer.appendSliceAssumeCapacity("Content-Length: 13\r\n");
             writer.appendSliceAssumeCapacity("Content-Type: text/plain\r\n");
-            writer.appendSliceAssumeCapacity("Date: Sun, 14 Jul 2024 23:59:59 GMT\r\n");
             writer.appendSliceAssumeCapacity("\r\n");
             writer.appendSliceAssumeCapacity("Hello, World!");
         } else {
             writer.appendSliceAssumeCapacity("HTTP/1.1 404 Not Found\r\n");
+            writer.appendSliceAssumeCapacity("Server: Z\r\n");
+            const current_time = (self.server.current_time_str_ref orelse unreachable).*;
+            writer.appendSliceAssumeCapacity(current_time);
+            assert(std.mem.endsWith(u8, writer.items, "GMT\r\n"));
             writer.appendSliceAssumeCapacity("Content-Length: 0\r\n");
             writer.appendSliceAssumeCapacity("\r\n");
         }
@@ -380,12 +524,10 @@ const ServerThread = struct {
         params.cq_entries = queue_size;
 
         self.ring = try linux.IoUring.init_params(queue_size, &params);
-        assert(params.features & IORING_FEAT_SEND_BUF_SELECT == IORING_FEAT_SEND_BUF_SELECT);
+        assert(params.features & linuxext.IORING_FEAT_SEND_BUF_SELECT == linuxext.IORING_FEAT_SEND_BUF_SELECT);
 
         try linuxext.io_uring_register_files_sparse(&self.ring, 4);
-        try linuxext.io_uring_register_ring_fd(
-            &self.ring,
-        );
+        self.ring_fd_offset = try linuxext.io_uring_register_ring_fd(&self.ring);
     }
 
     fn alloc_buffer_group(self: *ServerThread, bgid: u16) !BufferGroupRecv {

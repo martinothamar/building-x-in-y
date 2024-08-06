@@ -15,5 +15,5 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     var server = try Server.init("127.0.0.1", null, &allocator);
     defer server.deinit();
-    server.run();
+    try server.run();
 }

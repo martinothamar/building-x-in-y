@@ -4,4 +4,8 @@ test:
 
 .PHONY: build
 build:
-	zig build
+	zig build -Doptimize=ReleaseSafe
+
+.PHONY: run
+run: build
+	./zig-out/bin/zserv
