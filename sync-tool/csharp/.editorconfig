@@ -1,0 +1,59 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+# top-most EditorConfig file
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+max_line_length = 120
+
+# Xml project files
+[*.{csproj,fsproj,vbproj,vcxproj,vcxproj.filters,proj,nativeproj,locproj}]
+indent_size = 2
+
+[*.{csproj,fsproj,vbproj,proj,nativeproj,locproj}]
+charset = utf-8
+
+# Xml config files
+[*.{props,targets,config,nuspec}]
+indent_size = 2
+
+[*.sln]
+end_of_line = crlf
+
+# Shell scripts
+[*.sh]
+end_of_line = lf
+[*.{cmd,bat}]
+end_of_line = crlf
+
+[Makefile]
+indent_style = tab
+
+[*.cs]
+
+# S3903: Types should be defined in named namespaces
+dotnet_diagnostic.S3903.severity = none
+
+# S1144: Remove the unused internal ...
+dotnet_diagnostic.S1144.severity = suggestion
+
+# Allow closed type hierarchies based on records
+dotnet_diagnostic.CTH001.suppress_on_record_hierarchies = true
+
+# S108: Nested blocks of code should not be left empty
+dotnet_diagnostic.S108.severity = suggestion
+
+# S1135: Track uses of "TODO" tags
+dotnet_diagnostic.S1135.severity = suggestion
+
+# S125: Sections of code should not be commented out
+dotnet_diagnostic.S125.severity = suggestion
+
+# S2743: Static fields should not be used in generic types
+dotnet_diagnostic.S2743.severity = suggestion

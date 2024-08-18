@@ -1,0 +1,11 @@
+{
+    "profiles": {
+        "Run": {
+            "commandName": "Project",
+            "environmentVariables": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            },
+            "commandLineArgs": "--dir $(MSBuildProjectDirectory)/../../test/data/ --port 8080"
+        }
+    }
+}
